@@ -4,13 +4,13 @@ import ccxt
 import pandas as pd
 import requests
 from telegram import Bot
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- KONFIGURASI ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 THRESHOLD_NOTIF = 0.5 
-SPIKE_MULTIPLIER = 3.0  # Jika body > 3x rata-rata 5 candle sebelumnya
+SPIKE_MULTIPLIER = 3.0 
 
 WATCHLIST = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
@@ -42,24 +42,27 @@ def hitung_rsi(data, period=14):
     return rsi.fillna(50)
 
 async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
-    pesan_header = "🌙 *Laporan Harian Portofolio (20:00)*"
+    pesan_header = "🌙 *Laporan Harian Portofolio (20:00 WIB)*"
     await bot.send_message(chat_id=CHAT_ID, text=pesan_header, parse_mode='Markdown')
     
     for symbol in PORTFOLIO:
-        ticker = exchange.fetch_ticker(symbol)
-        curr_price = ticker['last']
-        curr_price_idr = curr_price * usd_idr_rate
-        p = PORTFOLIO[symbol]
-        
-        modal_idr = p['buy_price_idr'] * p['amount']
-        current_value_idr = curr_price_idr * p['amount']
-        profit_loss_idr = current_value_idr - modal_idr
-        pnl_pct = (profit_loss_idr / modal_idr) * 100
-        status = "🟢 PROFIT" if profit_loss_idr >= 0 else "🔴 LOSS"
-        
-        pesan = f"*{symbol}*\n{status}: {pnl_pct:.2f}% | Rp {profit_loss_idr:,.0f}"
-        await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
-        await asyncio.sleep(1)
+        try:
+            ticker = exchange.fetch_ticker(symbol)
+            curr_price = ticker['last']
+            curr_price_idr = curr_price * usd_idr_rate
+            p = PORTFOLIO[symbol]
+            
+            modal_idr = p['buy_price_idr'] * p['amount']
+            current_value_idr = curr_price_idr * p['amount']
+            profit_loss_idr = current_value_idr - modal_idr
+            pnl_pct = (profit_loss_idr / modal_idr) * 100
+            status = "🟢 PROFIT" if profit_loss_idr >= 0 else "🔴 LOSS"
+            
+            pesan = f"*{symbol}*\n{status}: {pnl_pct:.2f}% | Rp {profit_loss_idr:,.0f}"
+            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+            await asyncio.sleep(1)
+        except Exception as e:
+            print(f"Gagal report {symbol}: {e}")
 
 async def cek_koin(exchange, symbol, bot, usd_idr_rate):
     try:
@@ -70,37 +73,35 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         df['RSI'] = hitung_rsi(df['close'])
         df['EMA50'] = df['close'].ewm(span=50, adjust=False).mean()
         
-        # LOGIKA SPIKE DETECTOR
+        # SPIKE DETECTOR
         df['body_size'] = abs(df['close'] - df['open'])
         df['avg_body'] = df['body_size'].shift(1).rolling(window=5).mean()
         
         current_body = df['body_size'].iloc[-1]
         prev_avg_body = df['avg_body'].iloc[-1]
-        
-        # Cek Spike
         is_spike = current_body > (prev_avg_body * SPIKE_MULTIPLIER) if prev_avg_body > 0 else False
-        spike_warning = "⚠️ *PERINGATAN: Spike Terdeteksi! (Volatilitas Ekstrem)*\n" if is_spike else ""
+        spike_warning = "⚠️ *SPYKE DETECTED!*\n" if is_spike else ""
         
         curr_price = df['close'].iloc[-1]
         prev_price = df['close'].iloc[-2]
-        ema50_val = df['EMA50'].iloc[-1]
         
-        bars_1d = exchange.fetch_ohlcv(symbol, timeframe='1d', limit=60)
-        df_1d = pd.DataFrame(bars_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        ema50_1d = df_1d['close'].ewm(span=50, adjust=False).mean().iloc[-1]
-        tren_1d = "🟢 BULLISH" if curr_price > ema50_1d else "🔴 BEARISH"
-        
-        # Laporan Rutin
+        # Laporan Rutin HANYA untuk BTC/ETH
         if symbol in ['BTC/USDT', 'ETH/USDT']:
             change_pct = ((curr_price - prev_price) / prev_price) * 100
             if abs(change_pct) >= THRESHOLD_NOTIF:
                 arah = "🟢 NAIK" if change_pct > 0 else "🔴 TURUN"
-                pesan = f"🕒 *Laporan Rutin {symbol}*\nPerubahan: {arah} {change_pct:.2f}%\nTren: {tren_1d}"
+                pesan = f"🕒 *Laporan {symbol}*\nPerubahan: {arah} {change_pct:.2f}%"
                 await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
-        # Sinyal Beli/Jual
+        # Sinyal Beli/Jual untuk SEMUA (termasuk BTC/ETH)
         prev_rsi = df['RSI'].iloc[-2]
         curr_rsi = df['RSI'].iloc[-1]
+        
+        # Ambil Tren 1D untuk context sinyal
+        bars_1d = exchange.fetch_ohlcv(symbol, timeframe='1d', limit=60)
+        df_1d = pd.DataFrame(bars_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        ema50_1d = df_1d['close'].ewm(span=50, adjust=False).mean().iloc[-1]
+        tren_1d = "🟢 BULLISH" if curr_price > ema50_1d else "🔴 BEARISH"
         
         if prev_rsi < 20 and curr_rsi >= 20:
             await bot.send_message(chat_id=CHAT_ID, 
@@ -119,9 +120,12 @@ async def main():
     bot = Bot(token=TOKEN)
     usd_idr_rate = get_usd_to_idr()
     
-    # Laporan Harian (Jalankan sekali di awal script)
-    now = datetime.now()
-    if now.hour == 20 and now.minute < 5:
+    # FIX TIMEZONE WIB: UTC + 7 jam
+    now_utc = datetime.utcnow()
+    now_wib = now_utc + timedelta(hours=7)
+    
+    # Logika Laporan Harian jam 20:00-20:05
+    if now_wib.hour == 20 and now_wib.minute < 10:
         await kirim_laporan_porto(bot, exchange, usd_idr_rate)
     
     for symbol in WATCHLIST:
