@@ -13,11 +13,11 @@ RSI_OVERSOLD = 20
 
 # Daftar koin yang dipantau
 WATCHLIST = [
-    'BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'LRC-USDT', 'BNB-USDT', 
-    'XRP-USDT', 'ADA-USDT', 'DOT-USDT', 'LINK-USDT', 'UNI-USDT', 
-    'LTC-USDT', 'TRX-USDT', 'ATOM-USDT', 'ALGO-USDT', 'BCH-USDT', 
-    'GRT-USDT', 'FIL-USDT', 'DOGE-USDT', 'SUI-USDT', 'ARB-USDT', 
-    'TON-USDT', 'INJ-USDT', 'NEAR-USDT', 'OP-USDT', 'AVAX-USDT'
+    'BTC-USD', 'ETH-USD', 'SOL-USD', 'LRC-USD', 'BNB-USD', 
+    'XRP-USD', 'ADA-USD', 'DOT-USD', 'LINK-USD', 'UNI-USD', 
+    'LTC-USD', 'TRX-USD', 'ATOM-USD', 'ALGO-USD', 'BCH-USD', 
+    'GRT-USD', 'FIL-USD', 'DOGE-USD', 'SUI-USD', 'ARB-USD', 
+    'TON-USD', 'INJ-USD', 'NEAR-USD', 'OP-USD', 'AVAX-USD'
 ]
 
 # --- PENGATURAN PORTOFOLIO (Edit ini sesuai asetmu) ---
