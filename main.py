@@ -41,14 +41,16 @@ def hitung_rsi(data, period=14):
 async def cek_koin(exchange, symbol, bot, usd_idr_rate):
     try:
         # 1. AMBIL DATA
-        bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
-        if len(bars) < 25: return 
+        bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=60) # Limit dinaikkan sedikit agar EMA 50 stabil
+        if len(bars) < 50: return 
 
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['RSI'] = hitung_rsi(df['close'])
+        df['EMA50'] = df['close'].ewm(span=50, adjust=False).mean() # TAMBAHAN: Perhitungan EMA 50
         
         curr_price = df['close'].iloc[-1]
         prev_price = df['close'].iloc[-2]
+        ema50_val = df['EMA50'].iloc[-1]
         curr_price_idr = curr_price * usd_idr_rate
         
         # 2. LOGIKA PnL (Cek Portofolio)
@@ -72,15 +74,25 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                      f"{pnl_msg}")
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
-        # 4. LOGIKA MOMENTUM (Sinyal Entry/Exit)
+        # 4. LOGIKA MOMENTUM & LABEL RISIKO
         prev_rsi = df['RSI'].iloc[-2]
         curr_rsi = df['RSI'].iloc[-1]
         
+        # Sinyal Beli
         if prev_rsi < 20 and curr_rsi >= 20:
-            await bot.send_message(chat_id=CHAT_ID, text=f"🟢 *SINYAL BELI {symbol}*\nMomentum: Keluar dari Oversold (<20 ke >20)\nHarga: {curr_price:.4f} USD", parse_mode='Markdown')
+            risiko = "🟢 LOW RISK (Tren Sehat)" if curr_price > ema50_val else "🔴 HIGH RISK (Counter-Trend)"
+            await bot.send_message(chat_id=CHAT_ID, 
+                                   text=f"🟢 *SINYAL BELI {symbol}*\nStatus: {risiko}\n"
+                                        f"Harga: {curr_price:.4f} USD\nRSI: {curr_rsi:.2f}", 
+                                   parse_mode='Markdown')
         
+        # Sinyal Jual
         elif prev_rsi > 80 and curr_rsi <= 80:
-            await bot.send_message(chat_id=CHAT_ID, text=f"🔴 *SINYAL JUAL {symbol}*\nMomentum: Keluar dari Overbought (>80 ke <80)\nHarga: {curr_price:.4f} USD", parse_mode='Markdown')
+            risiko = "🟢 LOW RISK (Tren Turun)" if curr_price < ema50_val else "🔴 HIGH RISK (Melawan Arus)"
+            await bot.send_message(chat_id=CHAT_ID, 
+                                   text=f"🔴 *SINYAL JUAL {symbol}*\nStatus: {risiko}\n"
+                                        f"Harga: {curr_price:.4f} USD\nRSI: {curr_rsi:.2f}", 
+                                   parse_mode='Markdown')
 
     except Exception as e:
         print(f"Error pada {symbol}: {e}")
