@@ -52,13 +52,21 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
             curr_price_idr = curr_price * usd_idr_rate
             p = PORTFOLIO[symbol]
             
-            modal_idr = p['buy_price_idr'] * p['amount']
+            # Kalkulasi
+            buy_price_idr = p['buy_price_idr']
+            modal_idr = buy_price_idr * p['amount']
             current_value_idr = curr_price_idr * p['amount']
             profit_loss_idr = current_value_idr - modal_idr
             pnl_pct = (profit_loss_idr / modal_idr) * 100
             status = "🟢 PROFIT" if profit_loss_idr >= 0 else "🔴 LOSS"
             
-            pesan = f"*{symbol}*\n{status}: {pnl_pct:.2f}% | Rp {profit_loss_idr:,.0f}"
+            # Format pesan yang lebih jelas
+            pesan = (f"*{symbol}*\n"
+                     f"{status}\n"
+                     f"Harga Beli: Rp {buy_price_idr:,.0f}\n"
+                     f"Harga Sekarang: Rp {curr_price_idr:,.0f}\n"
+                     f"P/L: {pnl_pct:.2f}% (Rp {profit_loss_idr:,.0f})")
+            
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             await asyncio.sleep(1)
         except Exception as e:
