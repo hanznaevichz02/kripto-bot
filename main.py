@@ -2,7 +2,7 @@ import os
 import asyncio
 import ccxt
 import pandas as pd
-import requests # Library baru untuk ambil kurs
+import requests
 from telegram import Bot
 
 # --- KONFIGURASI ---
@@ -11,6 +11,7 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 RSI_OVERBOUGHT = 80
 RSI_OVERSOLD = 20
 
+# Daftar koin yang dipantau
 WATCHLIST = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'LRC/USDT', 'BNB/USDT', 
     'XRP/USDT', 'ADA/USDT', 'DOT/USDT', 'LINK/USDT', 'UNI/USDT', 
@@ -19,14 +20,18 @@ WATCHLIST = [
     'TON/USDT', 'INJ/USDT', 'NEAR/USDT', 'OP/USDT', 'AVAX/USDT'
 ]
 
-# Fungsi mengambil kurs otomatis
+# --- PENGATURAN PORTOFOLIO (Edit ini sesuai asetmu) ---
+PORTFOLIO = {
+    'BTC/USDT': {'buy_price_idr': 1311140722, 'amount': 0.00076261}, 
+    'ETH/USDT': {'buy_price_idr': 37447016, 'amount': 0.05060638},   
+}
+
 def get_usd_to_idr():
     try:
         response = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
-        data = response.json()
-        return data['rates']['IDR']
+        return response.json()['rates']['IDR']
     except:
-        return 16000 # Fallback jika API error
+        return 16000 # Fallback jika API down
 
 def hitung_rsi(data, period=14):
     delta = data.diff()
@@ -39,8 +44,7 @@ def hitung_rsi(data, period=14):
 async def cek_koin(exchange, coin, bot, usd_idr_rate):
     try:
         bars = exchange.fetch_ohlcv(coin, timeframe='1h', limit=50)
-        if not bars or len(bars) < 25:
-            return 
+        if not bars or len(bars) < 25: return 
 
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['EMA9'] = df['close'].ewm(span=9, adjust=False).mean()
@@ -51,31 +55,40 @@ async def cek_koin(exchange, coin, bot, usd_idr_rate):
         curr = df.iloc[-1]
         prev = df.iloc[-2]
         
-        # Hitung harga IDR dinamis
-        harga_idr = curr['close'] * usd_idr_rate
+        # Hitung Nilai IDR
+        curr_price_idr = curr['close'] * usd_idr_rate
         
-        # --- 1. LAPORAN RUTIN (Heartbeat) ---
+        # --- LOGIKA PnL (Profit & Loss) ---
+        pnl_msg = ""
+        if coin in PORTFOLIO:
+            p = PORTFOLIO[coin]
+            modal_idr = p['buy_price_idr'] * p['amount']
+            current_value_idr = curr_price_idr * p['amount']
+            profit_loss_idr = current_value_idr - modal_idr
+            pnl_pct = (profit_loss_idr / modal_idr) * 100
+            
+            status = "🟢 PROFIT" if profit_loss_idr >= 0 else "🔴 LOSS"
+            pnl_msg = f"\n{status}: {pnl_pct:.2f}% (Rp {profit_loss_idr:,.0f})"
+
+        # --- 1. LAPORAN RUTIN (Hanya untuk BTC/ETH) ---
         if coin in ['BTC/USDT', 'ETH/USDT']:
             change_pct = ((curr['close'] - prev['close']) / prev['close']) * 100
             arah = "🟢 NAIK" if change_pct > 0 else "🔴 TURUN"
             pesan = (f"🕒 *Laporan Rutin {coin}*\n"
-                     f"Perubahan: {arah} {change_pct:.2f}%\n"
-                     f"Harga: {curr['close']:.2f} USDT (Rp {harga_idr:,.0f})")
+                     f"Perubahan 1 jam: {arah} {change_pct:.2f}%\n"
+                     f"Harga: {curr['close']:.2f} USD (Rp {curr_price_idr:,.0f})"
+                     f"{pnl_msg}")
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
-        # --- 2. LOGIKA SINYAL TRADING ---
+        # --- 2. LOGIKA SINYAL TRADING (Semua Koin) ---
         is_volume_ok = curr['volume'] > curr['AvgVol']
         is_golden_cross = (prev['EMA9'] <= prev['EMA21']) and (curr['EMA9'] > curr['EMA21'])
         is_dead_cross = (prev['EMA9'] >= prev['EMA21']) and (curr['EMA9'] < curr['EMA21'])
         
         if is_golden_cross and is_volume_ok:
-            pesan = (f"🟢 *SINYAL BELI {coin}*\n"
-                     f"Harga: {curr['close']:.4f} USDT (Rp {harga_idr:,.0f})\n"
-                     f"RSI: {curr['RSI']:.2f}")
-            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+            await bot.send_message(chat_id=CHAT_ID, text=f"🟢 *SINYAL BELI {coin}*\nHarga: {curr['close']:.4f} USD\nRSI: {curr['RSI']:.2f}", parse_mode='Markdown')
         elif is_dead_cross:
-            pesan = f"🔴 *SINYAL JUAL {coin}*\nHarga: {curr['close']:.4f} USDT (Rp {harga_idr:,.0f})\nStatus: Dead Cross"
-            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+            await bot.send_message(chat_id=CHAT_ID, text=f"🔴 *SINYAL JUAL {coin}*\nHarga: {curr['close']:.4f} USD\nStatus: Dead Cross", parse_mode='Markdown')
             
     except Exception as e:
         print(f"Error pada {coin}: {e}")
@@ -83,9 +96,7 @@ async def cek_koin(exchange, coin, bot, usd_idr_rate):
 async def main():
     exchange = ccxt.binance({'enableRateLimit': True})
     bot = Bot(token=TOKEN)
-    # Ambil kurs sekali di awal agar efisien
     usd_idr_rate = get_usd_to_idr()
-    
     for coin in WATCHLIST:
         await cek_koin(exchange, coin, bot, usd_idr_rate)
         await asyncio.sleep(2) 
