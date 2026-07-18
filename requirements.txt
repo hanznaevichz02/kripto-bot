@@ -1,4 +1,4 @@
-ccxt
 pandas
 python-telegram-bot
 requests
+yfinance
