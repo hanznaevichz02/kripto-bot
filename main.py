@@ -52,30 +52,32 @@ async def cek_koin(exchange, coin, bot):
         curr = df.iloc[-1]
         prev = df.iloc[-2]
         
-        # --- LOGIKA SINYAL ---
+        # --- 1. LAPORAN RUTIN (Heartbeat) untuk BTC & ETH ---
+        if coin in ['BTC/USDT', 'ETH/USDT']:
+            change_pct = ((curr['close'] - prev['close']) / prev['close']) * 100
+            arah = "🟢 NAIK" if change_pct > 0 else "🔴 TURUN"
+            pesan = f"🕒 *Laporan Rutin {coin}*\nPerubahan: {arah} {change_pct:.2f}%\nHarga: {curr['close']:.2f} USDT"
+            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+
+        # --- 2. LOGIKA SINYAL TRADING (Tetap ada) ---
         is_volume_ok = curr['volume'] > curr['AvgVol']
         is_golden_cross = (prev['EMA9'] <= prev['EMA21']) and (curr['EMA9'] > curr['EMA21'])
         is_dead_cross = (prev['EMA9'] >= prev['EMA21']) and (curr['EMA9'] < curr['EMA21'])
         
-        # Logika Reversal RSI (Keluar dari zona jenuh)
         is_reversal_down = (prev['RSI'] > RSI_OVERBOUGHT) and (curr['RSI'] <= RSI_OVERBOUGHT)
         is_reversal_up = (prev['RSI'] < RSI_OVERSOLD) and (curr['RSI'] >= RSI_OVERSOLD)
         
-        # --- URUTAN PRIORITAS NOTIFIKASI ---
         if is_golden_cross and is_volume_ok:
             pesan = f"🟢 *SINYAL BELI {coin}*\nHarga: {curr['close']:.4f} USDT\nRSI: {curr['RSI']:.2f}\nVolume: Bagus"
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
-            
         elif is_dead_cross:
             pesan = f"🔴 *SINYAL JUAL {coin}*\nHarga: {curr['close']:.4f} USDT\nStatus: Dead Cross"
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
-            
         elif is_reversal_down:
-            pesan = f"⚠️ *REVERSAL {coin}*\nRSI turun dari {prev['RSI']:.2f} ke {curr['RSI']:.2f}.\nPotensi pembalikan harga ke bawah (Bearish)."
+            pesan = f"⚠️ *REVERSAL {coin}*\nRSI turun dari {prev['RSI']:.2f} ke {curr['RSI']:.2f}.\nPotensi Bearish."
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
-            
         elif is_reversal_up:
-            pesan = f"✅ *REVERSAL {coin}*\nRSI naik dari {prev['RSI']:.2f} ke {curr['RSI']:.2f}.\nPotensi pembalikan harga ke atas (Bullish)."
+            pesan = f"✅ *REVERSAL {coin}*\nRSI naik dari {prev['RSI']:.2f} ke {curr['RSI']:.2f}.\nPotensi Bullish."
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
     except Exception as e:
