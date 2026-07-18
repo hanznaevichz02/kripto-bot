@@ -123,14 +123,15 @@ async def main():
     # Timezone WIB (UTC + 7)
     now_wib = datetime.utcnow() + timedelta(hours=7)
     
-    # Jalankan Laporan Harian jika masuk jam 20:xx
-    if now_wib.hour == 20 and now_wib.minute < 15:
+    # LOGIKA BARU: Jika jam sekarang adalah jam 20 (berapapun menitnya), kirim laporan.
+    # Karena cron jalan tiap 15 menit, ini hanya akan terpicu di jam 20:xx saja.
+    if now_wib.hour == 20:
         await kirim_laporan_porto(bot, exchange, usd_idr_rate)
     
-    # Loop Watchlist
+    # Loop Watchlist tetap jalan tiap kali script dipicu
     for symbol in WATCHLIST:
         await cek_koin(exchange, symbol, bot, usd_idr_rate)
-        await asyncio.sleep(2) 
+        await asyncio.sleep(2)
 
 if __name__ == '__main__':
     asyncio.run(main())
