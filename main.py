@@ -94,7 +94,7 @@ async def cek_koin(exchange, coin, bot, usd_idr_rate):
         print(f"Error pada {coin}: {e}")
 
 async def main():
-    exchange = ccxt.binance({'enableRateLimit': True})
+    exchange = ccxt.bybit({'enableRateLimit': True})
     bot = Bot(token=TOKEN)
     usd_idr_rate = get_usd_to_idr()
     for coin in WATCHLIST:
