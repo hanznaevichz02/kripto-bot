@@ -4,29 +4,28 @@ import ccxt
 import pandas as pd
 import requests
 from telegram import Bot
-from datetime import datetime  # Tambahkan ini
+from datetime import datetime
 
 # --- KONFIGURASI ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 THRESHOLD_NOTIF = 0.5 
+SPIKE_MULTIPLIER = 3.0  # Jika body > 3x rata-rata 5 candle sebelumnya
 
 WATCHLIST = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
-    'XRP/USDT', 'ADA/USDT', 'DOT/USDT', 'LINK/USDT', 'UNI/USDT', 
-    'LTC/USDT', 'TRX/USDT', 'ATOM/USDT', 'BCH/USDT', 'AAVE/USDT',
-    'DOGE/USDT', 'SUI/USDT', 'ARB/USDT', 'NEAR/USDT', 'AVAX/USDT',
-    'TAO/USDT', 'ONDO/USDT', 'HYPE/USDT'
-
+    'ADA/USDT', 'DOT/USDT', 'LINK/USDT', 'UNI/USDT', 'LTC/USDT', 
+    'TRX/USDT', 'ATOM/USDT', 'BCH/USDT', 'AAVE/USDT', 'DOGE/USDT', 
+    'SUI/USDT', 'ARB/USDT', 'NEAR/USDT', 'AVAX/USDT', 'TAO/USDT', 
+    'ONDO/USDT', 'HYPE/USDT'
 ]
-
 
 PORTFOLIO = {
     'BTC/USDT': {'buy_price_idr': 1311140722, 'amount': 0.00076261}, 
     'ETH/USDT': {'buy_price_idr': 37447016, 'amount': 0.05060638},   
 }
 
-# --- FUNGSI TAMBAHAN ---
+# --- FUNGSI ---
 def get_usd_to_idr():
     try:
         response = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
@@ -42,7 +41,6 @@ def hitung_rsi(data, period=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi.fillna(50)
 
-# Fungsi untuk laporan porto khusus
 async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
     pesan_header = "🌙 *Laporan Harian Portofolio (20:00)*"
     await bot.send_message(chat_id=CHAT_ID, text=pesan_header, parse_mode='Markdown')
@@ -59,8 +57,7 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
         pnl_pct = (profit_loss_idr / modal_idr) * 100
         status = "🟢 PROFIT" if profit_loss_idr >= 0 else "🔴 LOSS"
         
-        pesan = (f"*{symbol}*\n"
-                 f"{status}: {pnl_pct:.2f}% | Rp {profit_loss_idr:,.0f}")
+        pesan = f"*{symbol}*\n{status}: {pnl_pct:.2f}% | Rp {profit_loss_idr:,.0f}"
         await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
         await asyncio.sleep(1)
 
@@ -73,34 +70,46 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         df['RSI'] = hitung_rsi(df['close'])
         df['EMA50'] = df['close'].ewm(span=50, adjust=False).mean()
         
+        # LOGIKA SPIKE DETECTOR
+        df['body_size'] = abs(df['close'] - df['open'])
+        df['avg_body'] = df['body_size'].shift(1).rolling(window=5).mean()
+        
+        current_body = df['body_size'].iloc[-1]
+        prev_avg_body = df['avg_body'].iloc[-1]
+        
+        # Cek Spike
+        is_spike = current_body > (prev_avg_body * SPIKE_MULTIPLIER) if prev_avg_body > 0 else False
+        spike_warning = "⚠️ *PERINGATAN: Spike Terdeteksi! (Volatilitas Ekstrem)*\n" if is_spike else ""
+        
         curr_price = df['close'].iloc[-1]
         prev_price = df['close'].iloc[-2]
         ema50_val = df['EMA50'].iloc[-1]
-        curr_price_idr = curr_price * usd_idr_rate
         
         bars_1d = exchange.fetch_ohlcv(symbol, timeframe='1d', limit=60)
         df_1d = pd.DataFrame(bars_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         ema50_1d = df_1d['close'].ewm(span=50, adjust=False).mean().iloc[-1]
         tren_1d = "🟢 BULLISH" if curr_price > ema50_1d else "🔴 BEARISH"
         
-        # 4. LAPORAN RUTIN (Filter 0.5%)
+        # Laporan Rutin
         if symbol in ['BTC/USDT', 'ETH/USDT']:
             change_pct = ((curr_price - prev_price) / prev_price) * 100
             if abs(change_pct) >= THRESHOLD_NOTIF:
                 arah = "🟢 NAIK" if change_pct > 0 else "🔴 TURUN"
-                pesan = (f"🕒 *Laporan Rutin {symbol}*\n"
-                         f"Perubahan: {arah} {change_pct:.2f}%\n"
-                         f"Tren: {tren_1d}")
+                pesan = f"🕒 *Laporan Rutin {symbol}*\nPerubahan: {arah} {change_pct:.2f}%\nTren: {tren_1d}"
                 await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
-        # 5. SINYAL
+        # Sinyal Beli/Jual
         prev_rsi = df['RSI'].iloc[-2]
         curr_rsi = df['RSI'].iloc[-1]
         
         if prev_rsi < 20 and curr_rsi >= 20:
-            await bot.send_message(chat_id=CHAT_ID, text=f"🟢 *SINYAL BELI {symbol}*\nTren 1D: {tren_1d}\nRSI: {curr_rsi:.2f}", parse_mode='Markdown')
+            await bot.send_message(chat_id=CHAT_ID, 
+                                   text=f"🟢 *SINYAL BELI {symbol}*\n{spike_warning}Tren 1D: {tren_1d}\nRSI: {curr_rsi:.2f}", 
+                                   parse_mode='Markdown')
         elif prev_rsi > 80 and curr_rsi <= 80:
-            await bot.send_message(chat_id=CHAT_ID, text=f"🔴 *SINYAL JUAL {symbol}*\nTren 1D: {tren_1d}\nRSI: {curr_rsi:.2f}", parse_mode='Markdown')
+            await bot.send_message(chat_id=CHAT_ID, 
+                                   text=f"🔴 *SINYAL JUAL {symbol}*\n{spike_warning}Tren 1D: {tren_1d}\nRSI: {curr_rsi:.2f}", 
+                                   parse_mode='Markdown')
 
     except Exception as e:
         print(f"Error pada {symbol}: {e}")
@@ -110,14 +119,11 @@ async def main():
     bot = Bot(token=TOKEN)
     usd_idr_rate = get_usd_to_idr()
     
-    # Cek waktu sekarang (WIB diasumsikan sistem server mengikuti local time)
+    # Laporan Harian (Jalankan sekali di awal script)
     now = datetime.now()
-    
-    # Logika Laporan Harian Jam 20:00 (Range 5 menit)
     if now.hour == 20 and now.minute < 5:
         await kirim_laporan_porto(bot, exchange, usd_idr_rate)
     
-    # Loop Watchlist tetap berjalan
     for symbol in WATCHLIST:
         await cek_koin(exchange, symbol, bot, usd_idr_rate)
         await asyncio.sleep(2) 
