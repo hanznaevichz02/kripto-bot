@@ -8,6 +8,7 @@ from telegram import Bot
 # --- KONFIGURASI ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+THRESHOLD_NOTIF = 0.5 # Threshold laporan rutin (dalam persen)
 
 WATCHLIST = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 
@@ -54,7 +55,6 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         # 2. AMBIL DATA 1D (Tren Besar)
         bars_1d = exchange.fetch_ohlcv(symbol, timeframe='1d', limit=60)
         df_1d = pd.DataFrame(bars_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        # Hitung EMA 50 untuk TF 1D
         ema50_1d = df_1d['close'].ewm(span=50, adjust=False).mean().iloc[-1]
         tren_1d = "🟢 BULLISH (Aman)" if curr_price > ema50_1d else "🔴 BEARISH (Hati-hati)"
         
@@ -69,18 +69,21 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
             status = "🟢 PROFIT" if profit_loss_idr >= 0 else "🔴 LOSS"
             pnl_msg = f"\n{status}: {pnl_pct:.2f}% (Rp {profit_loss_idr:,.0f})"
 
-        # 4. LAPORAN RUTIN
+        # 4. LAPORAN RUTIN (Filter berdasarkan THRESHOLD_NOTIF)
         if symbol in ['BTC/USDT', 'ETH/USDT']:
             change_pct = ((curr_price - prev_price) / prev_price) * 100
-            arah = "🟢 NAIK" if change_pct > 0 else "🔴 TURUN"
-            pesan = (f"🕒 *Laporan Rutin {symbol}*\n"
-                     f"Perubahan 1 jam: {arah} {change_pct:.2f}%\n"
-                     f"Tren 1D: {tren_1d}\n"
-                     f"Harga: {curr_price:.2f} USD (Rp {curr_price_idr:,.0f})"
-                     f"{pnl_msg}")
-            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+            
+            # Cek apakah perubahan signifikan
+            if abs(change_pct) >= THRESHOLD_NOTIF:
+                arah = "🟢 NAIK" if change_pct > 0 else "🔴 TURUN"
+                pesan = (f"🕒 *Laporan Rutin {symbol}*\n"
+                         f"Perubahan 1 jam: {arah} {change_pct:.2f}%\n"
+                         f"Tren 1D: {tren_1d}\n"
+                         f"Harga: {curr_price:.2f} USD (Rp {curr_price_idr:,.0f})"
+                         f"{pnl_msg}")
+                await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
-        # 5. LOGIKA MOMENTUM & LABEL RISIKO
+        # 5. LOGIKA MOMENTUM & LABEL RISIKO (Tetap Normal)
         prev_rsi = df['RSI'].iloc[-2]
         curr_rsi = df['RSI'].iloc[-1]
         
