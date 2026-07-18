@@ -18,7 +18,6 @@ WATCHLIST = [
 ]
 
 # --- PENGATURAN PORTOFOLIO ---
-# Pastikan key sama dengan WATCHLIST ('BTC/USDT')
 PORTFOLIO = {
     'BTC/USDT': {'buy_price_idr': 1311140722, 'amount': 0.00076261}, 
     'ETH/USDT': {'buy_price_idr': 37447016, 'amount': 0.05060638},   
@@ -41,20 +40,18 @@ def hitung_rsi(data, period=14):
 
 async def cek_koin(exchange, symbol, bot, usd_idr_rate):
     try:
-        # Mengambil data dari KuCoin
+        # 1. AMBIL DATA
         bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
         if len(bars) < 25: return 
 
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['EMA9'] = df['close'].ewm(span=9, adjust=False).mean()
-        df['EMA21'] = df['close'].ewm(span=21, adjust=False).mean()
         df['RSI'] = hitung_rsi(df['close'])
         
         curr_price = df['close'].iloc[-1]
         prev_price = df['close'].iloc[-2]
         curr_price_idr = curr_price * usd_idr_rate
         
-        # --- LOGIKA PnL ---
+        # 2. LOGIKA PnL (Cek Portofolio)
         pnl_msg = ""
         if symbol in PORTFOLIO:
             p = PORTFOLIO[symbol]
@@ -65,7 +62,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
             status = "🟢 PROFIT" if profit_loss_idr >= 0 else "🔴 LOSS"
             pnl_msg = f"\n{status}: {pnl_pct:.2f}% (Rp {profit_loss_idr:,.0f})"
 
-        # --- LAPORAN RUTIN (BTC/ETH) ---
+        # 3. LAPORAN RUTIN (Heartbeat - Hanya BTC/ETH)
         if symbol in ['BTC/USDT', 'ETH/USDT']:
             change_pct = ((curr_price - prev_price) / prev_price) * 100
             arah = "🟢 NAIK" if change_pct > 0 else "🔴 TURUN"
@@ -74,6 +71,16 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                      f"Harga: {curr_price:.2f} USD (Rp {curr_price_idr:,.0f})"
                      f"{pnl_msg}")
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+
+        # 4. LOGIKA MOMENTUM (Sinyal Entry/Exit)
+        prev_rsi = df['RSI'].iloc[-2]
+        curr_rsi = df['RSI'].iloc[-1]
+        
+        if prev_rsi < 20 and curr_rsi >= 20:
+            await bot.send_message(chat_id=CHAT_ID, text=f"🟢 *SINYAL BELI {symbol}*\nMomentum: Keluar dari Oversold (<20 ke >20)\nHarga: {curr_price:.4f} USD", parse_mode='Markdown')
+        
+        elif prev_rsi > 80 and curr_rsi <= 80:
+            await bot.send_message(chat_id=CHAT_ID, text=f"🔴 *SINYAL JUAL {symbol}*\nMomentum: Keluar dari Overbought (>80 ke <80)\nHarga: {curr_price:.4f} USD", parse_mode='Markdown')
 
     except Exception as e:
         print(f"Error pada {symbol}: {e}")
