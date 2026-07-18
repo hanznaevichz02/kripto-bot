@@ -66,14 +66,14 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
 
 async def cek_koin(exchange, symbol, bot, usd_idr_rate):
     try:
+        # Fetch 1H
         bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=60)
         if len(bars) < 50: return 
 
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['RSI'] = hitung_rsi(df['close'])
-        df['EMA50'] = df['close'].ewm(span=50, adjust=False).mean()
         
-        # SPIKE DETECTOR
+        # LOGIKA SPIKE DETECTOR
         df['body_size'] = abs(df['close'] - df['open'])
         df['avg_body'] = df['body_size'].shift(1).rolling(window=5).mean()
         
@@ -85,19 +85,19 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         curr_price = df['close'].iloc[-1]
         prev_price = df['close'].iloc[-2]
         
-        # Laporan Rutin HANYA untuk BTC/ETH
+        # 1. Laporan Rutin BTC/ETH (Tanpa Spike Alert)
         if symbol in ['BTC/USDT', 'ETH/USDT']:
             change_pct = ((curr_price - prev_price) / prev_price) * 100
             if abs(change_pct) >= THRESHOLD_NOTIF:
                 arah = "🟢 NAIK" if change_pct > 0 else "🔴 TURUN"
-                pesan = f"🕒 *Laporan {symbol}*\nPerubahan: {arah} {change_pct:.2f}%"
+                pesan = f"🕒 *Laporan Rutin {symbol}*\nPerubahan: {arah} {change_pct:.2f}%"
                 await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
-        # Sinyal Beli/Jual untuk SEMUA (termasuk BTC/ETH)
+        # 2. Sinyal Beli/Jual (Semua koin, dengan Spike Alert)
         prev_rsi = df['RSI'].iloc[-2]
         curr_rsi = df['RSI'].iloc[-1]
         
-        # Ambil Tren 1D untuk context sinyal
+        # Ambil tren 1D
         bars_1d = exchange.fetch_ohlcv(symbol, timeframe='1d', limit=60)
         df_1d = pd.DataFrame(bars_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         ema50_1d = df_1d['close'].ewm(span=50, adjust=False).mean().iloc[-1]
@@ -120,14 +120,14 @@ async def main():
     bot = Bot(token=TOKEN)
     usd_idr_rate = get_usd_to_idr()
     
-    # FIX TIMEZONE WIB: UTC + 7 jam
-    now_utc = datetime.utcnow()
-    now_wib = now_utc + timedelta(hours=7)
+    # Timezone WIB (UTC + 7)
+    now_wib = datetime.utcnow() + timedelta(hours=7)
     
-    # Logika Laporan Harian jam 20:00-20:05
-    if now_wib.hour == 20 and now_wib.minute < 10:
+    # Jalankan Laporan Harian jika masuk jam 20:xx
+    if now_wib.hour == 20 and now_wib.minute < 15:
         await kirim_laporan_porto(bot, exchange, usd_idr_rate)
     
+    # Loop Watchlist
     for symbol in WATCHLIST:
         await cek_koin(exchange, symbol, bot, usd_idr_rate)
         await asyncio.sleep(2) 
