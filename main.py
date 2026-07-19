@@ -71,60 +71,50 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
 
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        # --- PERSIAPAN: GOLDEN / DEAD CROSS (EMA 9 & 21) ---
+        # --- PERSIAPAN ---
         df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
         df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
-        
-        # Deteksi perpotongan (membandingkan candle terakhir dan sebelumnya)
-        golden_cross = (df['ema9'].iloc[-2] < df['ema21'].iloc[-2]) and (df['ema9'].iloc[-1] > df['ema21'].iloc[-1])
-        dead_cross = (df['ema9'].iloc[-2] > df['ema21'].iloc[-2]) and (df['ema9'].iloc[-1] < df['ema21'].iloc[-1])
-        
-        if golden_cross:
-            await bot.send_message(chat_id=CHAT_ID, text=f"🔔 *PREP: Golden Cross EMA 9/21 {symbol}*\nCek Chart!", parse_mode='Markdown')
-        elif dead_cross:
-            await bot.send_message(chat_id=CHAT_ID, text=f"🔔 *PREP: Dead Cross EMA 9/21 {symbol}*\nCek Chart!", parse_mode='Markdown')
-
-        # --- EKSEKUSI: BREAKOUT R2 + SPIKE ---
-        # 1. Filter Tren
         df['ma20'] = df['close'].rolling(window=20).mean()
-        is_uptrend = df['close'].iloc[-1] > df['ma20'].iloc[-1]
-        if not is_uptrend: return 
-
-        # 2. Pivot Point R2
+        
+        # Perhitungan Pivot S2 (Support) & R2 (Resistance)
         prev_candle = df.iloc[-2]
         p = (prev_candle['high'] + prev_candle['low'] + prev_candle['close']) / 3
         r2 = p + (prev_candle['high'] - prev_candle['low'])
+        s2 = p - (prev_candle['high'] - prev_candle['low'])
 
-        # 3. Spike Detector (Menggunakan data candle yang baru saja CLOSE)
-        # Kita hitung rata-rata 10 candle sebelumnya (tidak termasuk candle yang mau kita tes)
+        # Data candle terakhir (closed)
+        last_closed = df.iloc[-2]
+        curr_price = last_closed['close']
+        
+        # --- 1. ALARM: TREND REVERSAL (Khusus Aset Portofolio) ---
+        if symbol in PORTFOLIO and curr_price < df['ma20'].iloc[-2]:
+             await bot.send_message(chat_id=CHAT_ID, text=f"⚠️ *WARNING: Tren Berubah {symbol}*\nHarga ({curr_price:.4f}) turun di bawah MA20. Potensi dump/reversal!", parse_mode='Markdown')
+
+        # --- 2. ALARM: BREAKDOWN (Panic Selling) ---
         df['body'] = abs(df['close'] - df['open'])
         df['avg_body'] = df['body'].rolling(window=10).mean().shift(1)
         df['avg_vol'] = df['volume'].rolling(window=10).mean().shift(1)
         
-        # Ambil data dari candle yang baru saja tutup (iloc[-2])
-        # iloc[-2] adalah candle terakhir yang datanya sudah lengkap 1 jam
-        last_closed_candle = df.iloc[-2]
-        curr_price = last_closed_candle['close']
-        curr_body = last_closed_candle['body'] # Mengambil nilai yang sudah dihitung di df
-        curr_vol = last_closed_candle['volume']
-        
-        # Kita bandingkan data candle yang baru tutup (-2) 
-        # dengan rata-rata 10 candle sebelumnya (-2)
-        is_spike_price = curr_body > (df['avg_body'].iloc[-2] * SPIKE_MULTIPLIER)
-        is_spike_vol = curr_vol > (df['avg_vol'].iloc[-2] * VOL_MULTIPLIER)
-        
-        # R2 dihitung dari candle yang sudah close juga
-        is_breakout_r2 = curr_price > r2
+        is_spike_body = last_closed['body'] > (df['avg_body'].iloc[-2] * SPIKE_MULTIPLIER)
+        is_spike_vol = last_closed['volume'] > (df['avg_vol'].iloc[-2] * VOL_MULTIPLIER)
+        is_breakdown_s2 = curr_price < s2
 
-        if is_breakout_r2 and is_spike_price and is_spike_vol:
-            await bot.send_message(
-                chat_id=CHAT_ID, 
-                text=f"🚀 *BREAKOUT MOMENTUM {symbol}*\n"
-                     f"Harga Close: {curr_price:.4f}\n"
-                     f"Status: Tembus R2 ({r2:.4f})\n"
-                     f"Konfirmasi: Body & Volume Spike!",
-                parse_mode='Markdown'
-            )
+        if is_breakdown_s2 and is_spike_body and is_spike_vol:
+            await bot.send_message(chat_id=CHAT_ID, text=f"🚨 *BREAKDOWN MOMENTUM {symbol}*\nHarga: {curr_price:.4f}\nTembus Support S2! Hati-hati Panic Selling!", parse_mode='Markdown')
+
+        # --- 3. ALARM: BREAKOUT (Hanya jika Uptrend) ---
+        is_uptrend = curr_price > df['ma20'].iloc[-2]
+        if is_uptrend:
+            if curr_price > r2 and is_spike_body and is_spike_vol:
+                await bot.send_message(chat_id=CHAT_ID, text=f"🚀 *BREAKOUT MOMENTUM {symbol}*\n{curr_price:.4f} Tembus R2!", parse_mode='Markdown')
+
+        # --- 4. ALARM: PREP (EMA CROSS) ---
+        golden_cross = (df['ema9'].iloc[-3] < df['ema21'].iloc[-3]) and (df['ema9'].iloc[-2] > df['ema21'].iloc[-2])
+        dead_cross = (df['ema9'].iloc[-3] > df['ema21'].iloc[-3]) and (df['ema9'].iloc[-2] < df['ema21'].iloc[-2])
+        
+        if golden_cross: await bot.send_message(chat_id=CHAT_ID, text=f"🔔 *PREP: Golden Cross {symbol}*", parse_mode='Markdown')
+        elif dead_cross: await bot.send_message(chat_id=CHAT_ID, text=f"🔔 *PREP: Dead Cross {symbol}*", parse_mode='Markdown')
+
     except Exception as e:
         print(f"Error pada {symbol}: {e}")
 
