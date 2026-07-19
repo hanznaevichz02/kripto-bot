@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 # --- KONFIGURASI ---
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-THRESHOLD_NOTIF = 0.5 
-SPIKE_MULTIPLIER = 3.0 
+THRESHOLD_NOTIF = 0.4 
+SPIKE_MULTIPLIER = 2.5 
 
 WATCHLIST = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
