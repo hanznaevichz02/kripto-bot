@@ -41,6 +41,31 @@ def hitung_rsi(data, period=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi.fillna(50)
 
+# Fungsi untuk laporan rutin 3x sehari
+async def kirim_laporan_rutin(bot, exchange):
+    for symbol in ['BTC/USDT', 'ETH/USDT']:
+        try:
+            bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=2)
+            curr_price = bars[-1][4]
+            prev_price = bars[-2][4]
+            
+            # Tren 1D
+            bars_1d = exchange.fetch_ohlcv(symbol, timeframe='1d', limit=60)
+            df_1d = pd.DataFrame(bars_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            ema50_1d = df_1d['close'].ewm(span=50, adjust=False).mean().iloc[-1]
+            tren_1d = "🟢 BULLISH" if curr_price > ema50_1d else "🔴 BEARISH"
+            
+            change_pct = ((curr_price - prev_price) / prev_price) * 100
+            arah = "🟢 NAIK" if change_pct > 0 else "🔴 TURUN"
+            
+            pesan = (f"🕒 *Laporan Rutin {symbol}*\n"
+                     f"Perubahan: {arah} {change_pct:.2f}%\n"
+                     f"Tren: {tren_1d}")
+            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+            await asyncio.sleep(1)
+        except Exception as e:
+            print(f"Error laporan rutin {symbol}: {e}")
+
 async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
     pesan_header = "🌙 *Laporan Harian Portofolio (20:00 WIB)*"
     await bot.send_message(chat_id=CHAT_ID, text=pesan_header, parse_mode='Markdown')
@@ -52,7 +77,6 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
             curr_price_idr = curr_price * usd_idr_rate
             p = PORTFOLIO[symbol]
             
-            # Kalkulasi
             buy_price_idr = p['buy_price_idr']
             modal_idr = buy_price_idr * p['amount']
             current_value_idr = curr_price_idr * p['amount']
@@ -60,7 +84,6 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
             pnl_pct = (profit_loss_idr / modal_idr) * 100
             status = "🟢 PROFIT" if profit_loss_idr >= 0 else "🔴 LOSS"
             
-            # Format pesan yang lebih jelas
             pesan = (f"*{symbol}*\n"
                      f"{status}\n"
                      f"Harga Beli: Rp {buy_price_idr:,.0f}\n"
@@ -74,7 +97,6 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
 
 async def cek_koin(exchange, symbol, bot, usd_idr_rate):
     try:
-        # Fetch 1H
         bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=60)
         if len(bars) < 50: return 
 
@@ -91,17 +113,6 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         spike_warning = "⚠️ *SPYKE DETECTED!*\n" if is_spike else ""
         
         curr_price = df['close'].iloc[-1]
-        prev_price = df['close'].iloc[-2]
-        
-        # 1. Laporan Rutin BTC/ETH (Tanpa Spike Alert)
-        if symbol in ['BTC/USDT', 'ETH/USDT']:
-            change_pct = ((curr_price - prev_price) / prev_price) * 100
-            if abs(change_pct) >= THRESHOLD_NOTIF:
-                arah = "🟢 NAIK" if change_pct > 0 else "🔴 TURUN"
-                pesan = f"🕒 *Laporan Rutin {symbol}*\nPerubahan: {arah} {change_pct:.2f}%"
-                await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
-
-        # 2. Sinyal Beli/Jual (Semua koin, dengan Spike Alert)
         prev_rsi = df['RSI'].iloc[-2]
         curr_rsi = df['RSI'].iloc[-1]
         
@@ -131,12 +142,15 @@ async def main():
     # Timezone WIB (UTC + 7)
     now_wib = datetime.utcnow() + timedelta(hours=7)
     
-    # LOGIKA BARU: Jika jam sekarang adalah jam 20 (berapapun menitnya), kirim laporan.
-    # Karena cron jalan tiap 15 menit, ini hanya akan terpicu di jam 20:xx saja.
-    if now_wib.hour == 20:
-        await kirim_laporan_porto(bot, exchange, usd_idr_rate)
+    # Laporan Rutin jam 09, 14, 20
+    if now_wib.hour in [9, 14, 20]:
+        await kirim_laporan_rutin(bot, exchange)
+        
+        # Laporan Porto khusus jam 20
+        if now_wib.hour == 20:
+            await kirim_laporan_porto(bot, exchange, usd_idr_rate)
     
-    # Loop Watchlist tetap jalan tiap kali script dipicu
+    # Loop Watchlist
     for symbol in WATCHLIST:
         await cek_koin(exchange, symbol, bot, usd_idr_rate)
         await asyncio.sleep(2)
