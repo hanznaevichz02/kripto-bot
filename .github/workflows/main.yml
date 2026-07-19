@@ -1,9 +1,9 @@
 name: Trading Bot Hourly Scan
 
 on:
-  schedule:
+  #schedule:
     # Jalankan tiap jam, tepat di menit ke-0
-    - cron: '*/30 * * * *'
+    #- cron: '*/30 * * * *'
   workflow_dispatch: # Agar kamu bisa jalankan manual nanti
 
 jobs:
