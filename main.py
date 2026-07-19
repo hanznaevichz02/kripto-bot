@@ -95,21 +95,32 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         p = (prev_candle['high'] + prev_candle['low'] + prev_candle['close']) / 3
         r2 = p + (prev_candle['high'] - prev_candle['low'])
 
-        # 3. Spike Detector
+        # 3. Spike Detector (Menggunakan data candle yang baru saja CLOSE)
+        # Kita hitung rata-rata 10 candle sebelumnya (tidak termasuk candle yang mau kita tes)
         df['body'] = abs(df['close'] - df['open'])
         df['avg_body'] = df['body'].rolling(window=10).mean().shift(1)
         df['avg_vol'] = df['volume'].rolling(window=10).mean().shift(1)
         
-        curr_price = df['close'].iloc[-1]
-        is_spike_price = df['body'].iloc[-1] > (df['avg_body'].iloc[-1] * SPIKE_MULTIPLIER)
-        is_spike_vol = df['volume'].iloc[-1] > (df['avg_vol'].iloc[-1] * VOL_MULTIPLIER)
+        # Ambil data dari candle yang baru saja tutup (iloc[-2])
+        # iloc[-2] adalah candle terakhir yang datanya sudah lengkap 1 jam
+        last_closed_candle = df.iloc[-2]
+        curr_price = last_closed_candle['close']
+        curr_body = last_closed_candle['body'] # Mengambil nilai yang sudah dihitung di df
+        curr_vol = last_closed_candle['volume']
+        
+        # Kita bandingkan data candle yang baru tutup (-2) 
+        # dengan rata-rata 10 candle sebelumnya (-2)
+        is_spike_price = curr_body > (df['avg_body'].iloc[-2] * SPIKE_MULTIPLIER)
+        is_spike_vol = curr_vol > (df['avg_vol'].iloc[-2] * VOL_MULTIPLIER)
+        
+        # R2 dihitung dari candle yang sudah close juga
         is_breakout_r2 = curr_price > r2
 
         if is_breakout_r2 and is_spike_price and is_spike_vol:
             await bot.send_message(
                 chat_id=CHAT_ID, 
                 text=f"🚀 *BREAKOUT MOMENTUM {symbol}*\n"
-                     f"Harga: {curr_price:.4f}\n"
+                     f"Harga Close: {curr_price:.4f}\n"
                      f"Status: Tembus R2 ({r2:.4f})\n"
                      f"Konfirmasi: Body & Volume Spike!",
                 parse_mode='Markdown'
