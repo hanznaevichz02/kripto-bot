@@ -35,31 +35,39 @@ def get_usd_to_idr():
     except:
         return 16000
 
-async def kirim_laporan_rutin(bot, exchange):
-    for symbol in ['BTC/USDT', 'ETH/USDT']:
-        try:
-            bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
-            df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            curr_price = df['close'].iloc[-1]
-            ma20 = df['close'].rolling(window=20).mean().iloc[-1]
-            tren = "🟢 BULLISH" if curr_price > ma20 else "🔴 BEARISH"
-            await bot.send_message(chat_id=CHAT_ID, text=f"🕒 *Laporan Rutin {symbol}*\nHarga: {curr_price:.2f}\nTren (MA20): {tren}", parse_mode='Markdown')
-            await asyncio.sleep(1)
-        except Exception as e:
-            print(f"Error laporan rutin {symbol}: {e}")
-
 async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
-    await bot.send_message(chat_id=CHAT_ID, text="🌙 *Laporan Harian Portofolio*", parse_mode='Markdown')
+    await bot.send_message(chat_id=CHAT_ID, text="📊 *LAPORAN PORTOFOLIO & ANALISA*", parse_mode='Markdown')
+    
     for symbol in PORTFOLIO:
         try:
+            # 1. Fetch Harga & Tren
             ticker = exchange.fetch_ticker(symbol)
-            curr_price = ticker['last']
+            curr_price_usd = ticker['last']
+            curr_price_idr = curr_price_usd * usd_idr_rate
+            
+            # Fetch data untuk MA20 (Analisa Tren)
+            bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
+            df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            ma20 = df['close'].rolling(window=20).mean().iloc[-1]
+            tren = "🟢 BULLISH" if curr_price_usd > ma20 else "🔴 BEARISH"
+            
+            # 2. Hitung PnL
             p = PORTFOLIO[symbol]
             modal_idr = p['buy_price_idr'] * p['amount']
-            current_value_idr = (curr_price * usd_idr_rate) * p['amount']
-            pnl_pct = ((current_value_idr - modal_idr) / modal_idr) * 100
+            current_value_idr = curr_price_idr * p['amount']
+            
+            pnl_val = current_value_idr - modal_idr
+            pnl_pct = (pnl_val / modal_idr) * 100
             status = "🟢 PROFIT" if pnl_pct >= 0 else "🔴 LOSS"
-            await bot.send_message(chat_id=CHAT_ID, text=f"*{symbol}* ({status}): {pnl_pct:.2f}%", parse_mode='Markdown')
+            
+            # 3. Format Laporan
+            msg = (f"*{symbol}*\n"
+                   f"Status: {status} | Tren: {tren}\n"
+                   f"Harga Beli: Rp {modal_idr / p['amount']:,.0f}\n"
+                   f"Harga Sekarang: Rp {curr_price_idr:,.0f}\n"
+                   f"P/L: {pnl_pct:.2f}% (Rp {pnl_val:,.0f})")
+            
+            await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
             await asyncio.sleep(1)
         except Exception as e:
             print(f"Gagal report {symbol}: {e}")
