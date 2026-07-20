@@ -2,25 +2,26 @@ name: Trading Bot Hourly Scan
 
 on:
   #schedule:
-    # Jalankan tiap jam, tepat di menit ke-0
-    #- cron: '*/30 * * * *'
-  workflow_dispatch: # Agar kamu bisa jalankan manual nanti
+    #- cron: '0 * * * *'  # Berjalan tiap jam (bisa diaktifkan kembali jika mau otomatis)
+  workflow_dispatch:     # Agar bisa dijalankan manual dari tab Actions
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Install dependencies
-  run: |
-    pip install ccxt pandas requests python-telegram-bot
+        run: |
+          python -m pip install --upgrade pip
+          pip install ccxt pandas requests python-telegram-bot
 
       - name: Run bot
         env:
