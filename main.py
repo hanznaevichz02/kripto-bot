@@ -18,7 +18,13 @@ PORTFOLIO = {
     'ETH/USDT': {'buy_price_idr': 37447016, 'amount': 0.05060638},
 }
 
-ASSET_LIST = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+ASSET_LIST = [
+    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
+    'ADA/USDT', 'DOT/USDT', 'LINK/USDT', 'UNI/USDT', 'LTC/USDT', 
+    'TRX/USDT', 'ATOM/USDT', 'BCH/USDT', 'AAVE/USDT', 'DOGE/USDT', 
+    'SUI/USDT', 'ARB/USDT', 'NEAR/USDT', 'AVAX/USDT', 'TAO/USDT', 
+    'ONDO/USDT', 'HYPE/USDT'
+]
 
 # --- FUNGSI HELPER ---
 def get_usd_to_idr():
