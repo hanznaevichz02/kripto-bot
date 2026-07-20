@@ -103,16 +103,19 @@ async def cek_koin(exchange, symbol, bot):
 async def main():
     # Inisialisasi exchange
     exchange = ccxt.kucoin({'enableRateLimit': True})
+    # Fokus ke Spot):
+    exchange.options['defaultType'] = 'spot'
 
     # --- TAMBAHKAN DEBUG INI ---
     try:
         markets = exchange.load_markets()
         print(f"DEBUG: Berhasil memuat {len(markets)} market.")
-        # Cek apakah simbol ada di daftar
+        # Kita tambahkan log untuk melihat ID yang sebenarnya dipakai
         if 'BTC/USDT' in exchange.symbols:
-            print("DEBUG: BTC/USDT ditemukan di daftar market.")
+            market_id = exchange.market_id('BTC/USDT')
+            print(f"DEBUG: BTC/USDT ditemukan. ID yang akan dikirim ke API: {market_id}")
         else:
-            print(f"DEBUG: BTC/USDT TIDAK ADA. Contoh 5 simbol pertama: {exchange.symbols[:5]}")
+            print("DEBUG: BTC/USDT TIDAK ADA.")
     except Exception as e:
         print(f"DEBUG: Gagal load_markets: {e}")
         
