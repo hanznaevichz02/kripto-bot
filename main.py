@@ -101,7 +101,10 @@ async def cek_koin(exchange, symbol, bot):
         print(f"Error pada {symbol}: {e}")
 
 async def main():
+    # Inisialisasi exchange
     exchange = ccxt.kucoin({'enableRateLimit': True})
+    # Unduh daftar koin terbaru
+    exchange.load_markets()    
     bot = Bot(token=TOKEN)
     usd_idr_rate = get_usd_to_idr()
     now_wib = datetime.utcnow() + timedelta(hours=7)
