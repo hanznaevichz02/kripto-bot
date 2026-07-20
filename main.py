@@ -54,44 +54,57 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
     except Exception as e:
         print(f"Error pada fungsi kirim_laporan_porto: {e}")
 
-async def cek_koin(exchange, symbol, bot):
+async def cek_koin(exchange, symbol, bot, usd_idr_rate):  # <-- Tambahkan usd_idr_rate di sini
     try:
-        # Fetch OHLCV
+        # Fetch data 1 jam
         bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
         if len(bars) < 30:
             return
             
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        # EMA Calculations
+        # 1. EMA Calculations
         df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
         df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
         
-        # Spike Detector
+        # 2. Spike Detector
         df['body'] = abs(df['close'] - df['open'])
         df['avg_body'] = df['body'].rolling(window=10).mean().shift(1)
         df['avg_vol'] = df['volume'].rolling(window=10).mean().shift(1)
         
-        # Ambil data baris setelah kolom dibuat
         curr = df.iloc[-2]
         prev = df.iloc[-3]
         
-        # Pivot S2 & R2
+        # 3. Perhitungan Pivot S2 & R2
         p = (prev['high'] + prev['low'] + prev['close']) / 3
         r2 = p + (prev['high'] - prev['low'])
         s2 = p - (prev['high'] - prev['low'])
         
-        # Cek kondisi Spike
+        # Variabel Kondisi
+        is_price_break = curr['close'] > r2
+        is_price_breakdown = curr['close'] < s2
         is_spike_body = curr['body'] > (df['avg_body'].iloc[-2] * SPIKE_MULTIPLIER)
         is_spike_vol = curr['volume'] > (df['avg_vol'].iloc[-2] * VOL_MULTIPLIER)
         
-        # Logika Sinyal
-        if curr['close'] > r2 and is_spike_body and is_spike_vol:
-            await bot.send_message(chat_id=CHAT_ID, text=f"🚀 *BREAKOUT {symbol}*\nHarga: {curr['close']:.4f}\nTembus R2!", parse_mode='Markdown')
-        elif curr['close'] < s2 and is_spike_body and is_spike_vol:
-            await bot.send_message(chat_id=CHAT_ID, text=f"🚨 *BREAKDOWN {symbol}*\nHarga: {curr['close']:.4f}\nTembus S2!", parse_mode='Markdown')
+        # Konversi harga ke IDR
+        harga_idr = curr['close'] * usd_idr_rate
+        
+        # 4. Logika Sinyal BREAKOUT / BREAKDOWN (Berjenjang)
+        # Notif Konfirmasi (Paling Prioritas)
+        if (is_price_break or is_price_breakdown) and is_spike_body and is_spike_vol:
+            tipe = "BREAKOUT" if is_price_break else "BREAKDOWN"
+            await bot.send_message(chat_id=CHAT_ID, text=f"✅ *KONFIRMASI {tipe} {symbol}*\nHarga: Rp {harga_idr:,.0f}\n(Body & Vol Spike Terpenuhi!)", parse_mode='Markdown')
             
-        # EMA Cross
+        # Notif Siaga (Body + Volume Spike saja)
+        elif is_spike_body and is_spike_vol:
+            await bot.send_message(chat_id=CHAT_ID, text=f"⚠️ *SIAGA {symbol}*\nHarga: Rp {harga_idr:,.0f}\nBody & Volume Spike Terdeteksi!", parse_mode='Markdown')
+            
+        # Notif Awal (Price Break + Body Spike saja)
+        elif (is_price_break or is_price_breakdown) and is_spike_body:
+            tipe = "BREAKOUT" if is_price_break else "BREAKDOWN"
+            await bot.send_message(chat_id=CHAT_ID, text=f"🔍 *AWAL {tipe} {symbol}*\nHarga: Rp {harga_idr:,.0f}\nBody Spike Terdeteksi!", parse_mode='Markdown')
+            
+        # 5. Sinyal EMA CROSS (Tetap)
         golden = (df['ema9'].iloc[-3] < df['ema21'].iloc[-3]) and (df['ema9'].iloc[-2] > df['ema21'].iloc[-2])
         dead = (df['ema9'].iloc[-3] > df['ema21'].iloc[-3]) and (df['ema9'].iloc[-2] < df['ema21'].iloc[-2])
         
@@ -123,25 +136,13 @@ async def main():
 
     bot = Bot(token=TOKEN)
 
-    # --- KODE SEMENTARA: UJI COBA NOTIFIKASI TELEGRAM ---
-    try:
-        await bot.send_message(
-            chat_id=CHAT_ID, 
-            text="🤖 *UJI COBA BOT KRIPTO*\nBot berhasil terhubung dan berjalan dengan sukses!", 
-            parse_mode='Markdown'
-        )
-        print("DEBUG: Pesan uji coba Telegram berhasil dikirim.")
-    except Exception as e:
-        print(f"DEBUG: Gagal mengirim pesan uji coba Telegram: {e}")
-    # ---------------------------------------------------
-
     usd_idr_rate = get_usd_to_idr()
     now_wib = datetime.utcnow() + timedelta(hours=7)
     
-    # Eksekusi Analisa Sinyal
+    # Eksekusi Analisa Sinyal (Pastikan usd_idr_rate ikut dikirim ke cek_koin)
     for symbol in ASSET_LIST:
         print(f"DEBUG: Sedang cek {symbol}")
-        await cek_koin(exchange, symbol, bot)
+        await cek_koin(exchange, symbol, bot, usd_idr_rate)
         await asyncio.sleep(2) 
     
     # Eksekusi Laporan Porto
