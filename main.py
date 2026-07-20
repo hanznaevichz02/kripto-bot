@@ -7,90 +7,82 @@ from telegram import Bot
 from datetime import datetime, timedelta
 
 # --- KONFIGURASI ---
-TOKEN = "GANTI_DENGAN_TOKEN_BOT_MU"
-CHAT_ID = "GANTI_DENGAN_CHAT_ID_MU"
+TOKEN = os.getenv("TELEGRAM_TOKEN", "GANTI_DENGAN_TOKEN_BOT_MU")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "GANTI_DENGAN_CHAT_ID_MU")
 
-# Multiplier untuk Spike
 SPIKE_MULTIPLIER = 2.5
 VOL_MULTIPLIER = 2.0
 
-# Portofolio
 PORTFOLIO = {
     'BTC/USDT': {'buy_price_idr': 1311140722, 'amount': 0.00076261}, 
     'ETH/USDT': {'buy_price_idr': 37447016, 'amount': 0.05060638},
 }
 
-# Daftar koin yang dipantau (Portfolio + Watchlist)
 ASSET_LIST = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
 
+# Fungsi helper untuk mendapatkan kurs USD ke IDR
 def get_usd_to_idr():
     try:
         response = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
         return response.json()['rates']['IDR']
-    except:
-        return 16000 # Fallback jika API gagal
+    except Exception:
+        return 16000 
 
 async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
-    try:
-        await bot.send_message(chat_id=CHAT_ID, text="📊 *LAPORAN PORTOFOLIO*", parse_mode='Markdown')
-        for symbol in PORTFOLIO:
-            try:
-                ticker = exchange.fetch_ticker(symbol)
-                curr_price_idr = ticker['last'] * usd_idr_rate
-                p = PORTFOLIO[symbol]
-                
-                modal_idr = p['buy_price_idr'] * p['amount']
-                current_value_idr = curr_price_idr * p['amount']
-                pnl_val = current_value_idr - modal_idr
-                pnl_pct = (pnl_val / modal_idr) * 100
-                status = "🟢 PROFIT" if pnl_pct >= 0 else "🔴 LOSS"
-                
-                msg = (f"*{symbol}*\n"
-                       f"Status: {status}\n"
-                       f"Harga Beli: Rp {modal_idr / p['amount']:,.0f}\n"
-                       f"Harga Sekarang: Rp {curr_price_idr:,.0f}\n"
-                       f"P/L: {pnl_pct:.2f}% (Rp {pnl_val:,.0f})")
-                await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
-                await asyncio.sleep(1)
-            except Exception as e:
-                print(f"Gagal report {symbol}: {e}")
-    except Exception as e:
-        print(f"Error pada fungsi laporan: {e}")
+    await bot.send_message(chat_id=CHAT_ID, text="📊 *LAPORAN PORTOFOLIO*", parse_mode='Markdown')
+    for symbol, p in PORTFOLIO.items():
+        try:
+            ticker = exchange.fetch_ticker(symbol)
+            curr_price_idr = ticker['last'] * usd_idr_rate
+            
+            modal_idr = p['buy_price_idr'] * p['amount']
+            current_value_idr = curr_price_idr * p['amount']
+            pnl_val = current_value_idr - modal_idr
+            pnl_pct = (pnl_val / modal_idr) * 100
+            status = "🟢 PROFIT" if pnl_pct >= 0 else "🔴 LOSS"
+            
+            msg = (f"*{symbol}*\nStatus: {status}\n"
+                   f"Beli: Rp {modal_idr / p['amount']:,.0f}\n"
+                   f"Sekarang: Rp {curr_price_idr:,.0f}\n"
+                   f"P/L: {pnl_pct:.2f}% (Rp {pnl_val:,.0f})")
+            
+            await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
+            await asyncio.sleep(1)
+        except Exception as e:
+            print(f"Gagal report {symbol}: {e}")
 
 async def cek_koin(exchange, symbol, bot):
     try:
-        # Fetch data 1 jam (tambah limit biar cukup buat rolling)
+        # Fetch OHLCV dengan penanganan error
         bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        # EMA Calculations
+        # Indikator
         df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
         df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
         
-        # Perhitungan Pivot S2 & R2
-        prev = df.iloc[-2] # Candle yang sudah close
+        curr = df.iloc[-2]
+        prev = df.iloc[-3]
+        
+        # Pivot S2 & R2
         p = (prev['high'] + prev['low'] + prev['close']) / 3
         r2 = p + (prev['high'] - prev['low'])
         s2 = p - (prev['high'] - prev['low'])
         
         # Spike Detector
         df['body'] = abs(df['close'] - df['open'])
-        df['avg_body'] = df['body'].rolling(window=10).mean().shift(1)
-        df['avg_vol'] = df['volume'].rolling(window=10).mean().shift(1)
+        avg_body = df['body'].rolling(window=10).mean().iloc[-3]
+        avg_vol = df['volume'].rolling(window=10).mean().iloc[-3]
         
-        curr = df.iloc[-2] # Candle yang sudah close
-        is_spike_body = curr['body'] > (df['avg_body'].iloc[-2] * SPIKE_MULTIPLIER)
-        is_spike_vol = curr['volume'] > (df['avg_vol'].iloc[-2] * VOL_MULTIPLIER)
+        is_spike_body = curr['body'] > (avg_body * SPIKE_MULTIPLIER)
+        is_spike_vol = curr['volume'] > (avg_vol * VOL_MULTIPLIER)
         
-        # 1. Sinyal BREAKOUT
+        # Logika Sinyal
         if curr['close'] > r2 and is_spike_body and is_spike_vol:
-            await bot.send_message(chat_id=CHAT_ID, text=f"🚀 *BREAKOUT {symbol}*\nHarga: {curr['close']:.4f}\nStatus: Tembus R2!", parse_mode='Markdown')
-
-        # 2. Sinyal BREAKDOWN
-        if curr['close'] < s2 and is_spike_body and is_spike_vol:
-            await bot.send_message(chat_id=CHAT_ID, text=f"🚨 *BREAKDOWN {symbol}*\nHarga: {curr['close']:.4f}\nTembus S2! Waspada!", parse_mode='Markdown')
+            await bot.send_message(chat_id=CHAT_ID, text=f"🚀 *BREAKOUT {symbol}*\nHarga: {curr['close']:.4f}\nTembus R2!", parse_mode='Markdown')
+        elif curr['close'] < s2 and is_spike_body and is_spike_vol:
+            await bot.send_message(chat_id=CHAT_ID, text=f"🚨 *BREAKDOWN {symbol}*\nHarga: {curr['close']:.4f}\nTembus S2!", parse_mode='Markdown')
             
-        # 3. Sinyal EMA CROSS
         golden = (df['ema9'].iloc[-3] < df['ema21'].iloc[-3]) and (df['ema9'].iloc[-2] > df['ema21'].iloc[-2])
         dead = (df['ema9'].iloc[-3] > df['ema21'].iloc[-3]) and (df['ema9'].iloc[-2] < df['ema21'].iloc[-2])
         
@@ -98,40 +90,36 @@ async def cek_koin(exchange, symbol, bot):
         if dead: await bot.send_message(chat_id=CHAT_ID, text=f"🔔 *DEAD CROSS {symbol}*", parse_mode='Markdown')
 
     except Exception as e:
-        print(f"Error pada {symbol}: {e}")
+        print(f"Error analisa {symbol}: {e}")
 
 async def main():
-    # Inisialisasi exchange
-    exchange = ccxt.kucoin({'enableRateLimit': True})
-    # Fokus ke Spot):
-    exchange.options['defaultType'] = 'spot'
-
-    # --- TAMBAHKAN DEBUG INI ---
+    # Setup Exchange dengan Header agar tidak diblokir
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    
+    exchange = ccxt.kucoin({
+        'enableRateLimit': True,
+        'options': {'defaultType': 'spot'},
+        'headers': headers,
+        'timeout': 30000 
+    })
+    
     try:
-        markets = exchange.load_markets()
-        print(f"DEBUG: Berhasil memuat {len(markets)} market.")
-        # Kita tambahkan log untuk melihat ID yang sebenarnya dipakai
-        if 'BTC/USDT' in exchange.symbols:
-            market_id = exchange.market_id('BTC/USDT')
-            print(f"DEBUG: BTC/USDT ditemukan. ID yang akan dikirim ke API: {market_id}")
-        else:
-            print("DEBUG: BTC/USDT TIDAK ADA.")
+        exchange.load_markets()
     except Exception as e:
-        print(f"DEBUG: Gagal load_markets: {e}")
-        
-    # Unduh daftar koin terbaru
-    exchange.load_markets()    
+        print(f"Gagal memuat market: {e}")
+        return
+
     bot = Bot(token=TOKEN)
     usd_idr_rate = get_usd_to_idr()
     now_wib = datetime.utcnow() + timedelta(hours=7)
     
-    # 1. Eksekusi Analisa Sinyal (Selalu)
+    # Eksekusi
     for symbol in ASSET_LIST:
         await cek_koin(exchange, symbol, bot)
-        await asyncio.sleep(1)
+        await asyncio.sleep(2) # Delay lebih aman
     
-    # 2. Eksekusi Laporan Porto (Jam 9, 14, 20)
-    # Penambahan menit < 15 untuk mencegah dobel notif dari cron-job
     if now_wib.hour in [9, 14, 20] and now_wib.minute < 15:
         await kirim_laporan_porto(bot, exchange, usd_idr_rate)
 
