@@ -103,6 +103,19 @@ async def cek_koin(exchange, symbol, bot):
 async def main():
     # Inisialisasi exchange
     exchange = ccxt.kucoin({'enableRateLimit': True})
+
+    # --- TAMBAHKAN DEBUG INI ---
+    try:
+        markets = exchange.load_markets()
+        print(f"DEBUG: Berhasil memuat {len(markets)} market.")
+        # Cek apakah simbol ada di daftar
+        if 'BTC/USDT' in exchange.symbols:
+            print("DEBUG: BTC/USDT ditemukan di daftar market.")
+        else:
+            print(f"DEBUG: BTC/USDT TIDAK ADA. Contoh 5 simbol pertama: {exchange.symbols[:5]}")
+    except Exception as e:
+        print(f"DEBUG: Gagal load_markets: {e}")
+        
     # Unduh daftar koin terbaru
     exchange.load_markets()    
     bot = Bot(token=TOKEN)
