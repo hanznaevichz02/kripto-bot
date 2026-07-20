@@ -53,36 +53,42 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
 
 async def cek_koin(exchange, symbol, bot):
     try:
-        # Fetch OHLCV dengan penanganan error
+        # Fetch data 1 jam
         bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
+        if len(bars) < 30:
+            return
+            
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        # Indikator
+        # 1. EMA Calculations
         df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
         df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
         
-        curr = df.iloc[-2]
+        # 2. Spike Detector (Pindahkan ke ATAS sebelum mendefinisikan curr/prev)
+        df['body'] = abs(df['close'] - df['open'])
+        df['avg_body'] = df['body'].rolling(window=10).mean().shift(1)
+        df['avg_vol'] = df['volume'].rolling(window=10).mean().shift(1)
+        
+        # 3. Ambil data baris setelah semua kolom selesai dibuat
+        curr = df.iloc[-2] # Candle yang sudah close
         prev = df.iloc[-3]
         
-        # Pivot S2 & R2
+        # 4. Perhitungan Pivot S2 & R2
         p = (prev['high'] + prev['low'] + prev['close']) / 3
         r2 = p + (prev['high'] - prev['low'])
         s2 = p - (prev['high'] - prev['low'])
         
-        # Spike Detector
-        df['body'] = abs(df['close'] - df['open'])
-        avg_body = df['body'].rolling(window=10).mean().iloc[-3]
-        avg_vol = df['volume'].rolling(window=10).mean().iloc[-3]
+        # Cek kondisi Spike
+        is_spike_body = curr['body'] > (df['avg_body'].iloc[-2] * SPIKE_MULTIPLIER)
+        is_spike_vol = curr['volume'] > (df['avg_vol'].iloc[-2] * VOL_MULTIPLIER)
         
-        is_spike_body = curr['body'] > (avg_body * SPIKE_MULTIPLIER)
-        is_spike_vol = curr['volume'] > (avg_vol * VOL_MULTIPLIER)
-        
-        # Logika Sinyal
+        # 5. Logika Sinyal BREAKOUT / BREAKDOWN
         if curr['close'] > r2 and is_spike_body and is_spike_vol:
             await bot.send_message(chat_id=CHAT_ID, text=f"🚀 *BREAKOUT {symbol}*\nHarga: {curr['close']:.4f}\nTembus R2!", parse_mode='Markdown')
         elif curr['close'] < s2 and is_spike_body and is_spike_vol:
             await bot.send_message(chat_id=CHAT_ID, text=f"🚨 *BREAKDOWN {symbol}*\nHarga: {curr['close']:.4f}\nTembus S2!", parse_mode='Markdown')
             
+        # 6. Sinyal EMA CROSS
         golden = (df['ema9'].iloc[-3] < df['ema21'].iloc[-3]) and (df['ema9'].iloc[-2] > df['ema21'].iloc[-2])
         dead = (df['ema9'].iloc[-3] > df['ema21'].iloc[-3]) and (df['ema9'].iloc[-2] < df['ema21'].iloc[-2])
         
