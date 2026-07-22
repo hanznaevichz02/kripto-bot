@@ -235,13 +235,40 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
-        # 6. Sinyal EMA CROSS
+        # 6. Sinyal EMA CROSS & PRA-GOLDEN CROSS
         slope_ema9 = abs(df['ema9'].iloc[curr_idx] - df['ema9'].iloc[prev_idx]) / df['ema9'].iloc[prev_idx] * 100
         is_sudut_tajam = slope_ema9 > 0.3  
         
-        golden = (df['ema9'].iloc[prev_idx] < df['ema21'].iloc[prev_idx]) and (df['ema9'].iloc[curr_idx] > df['ema21'].iloc[curr_idx])
-        dead = (df['ema9'].iloc[prev_idx] > df['ema21'].iloc[prev_idx]) and (df['ema9'].iloc[curr_idx] < df['ema21'].iloc[prev_idx])
+        ema9_now = df['ema9'].iloc[curr_idx]
+        ema9_prev = df['ema9'].iloc[prev_idx]
+        ema21_now = df['ema21'].iloc[curr_idx]
+        ema21_prev = df['ema21'].iloc[prev_idx]
         
+        # Golden Cross & Dead Cross Valid
+        golden = (ema9_prev < ema21_prev) and (ema9_now > ema21_now)
+        dead = (ema9_prev > ema21_prev) and (ema9_now < ema21_now)
+        
+        # --- LOGIKA TAMBAHAN: PRA-GOLDEN CROSS (Hooking Up) ---
+        belum_cross = ema9_now < ema21_now
+        jarak_sekarang = ema21_now - ema9_now
+        jarak_sebelumnya = ema21_prev - ema9_prev
+        jarak_menyempit = jarak_sekarang < jarak_sebelumnya
+        ema9_menukik_naik = ema9_now > ema9_prev
+        
+        is_pra_golden_cross = belum_cross and jarak_menyempit and ema9_menukik_naik
+        
+        # Notifikasi Pra-Golden Cross
+        if is_pra_golden_cross and is_sudut_tajam:
+            pesan = (
+                f"{mode_scan}\n"
+                f"🪝 *PRA-GOLDEN CROSS {symbol}*\n"
+                f"⚡ _EMA 9 Melengkung Naik Mendekati EMA 21!_\n"
+                f"Aktivitas: {status_aktivitas}"
+                f"{struktur_pasar}"
+            )
+            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+        
+        # Notifikasi Golden Cross Valid
         if golden and is_spike_vol and is_sudut_tajam:
             pesan = (
                 f"{mode_scan}\n"
@@ -252,6 +279,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
+        # Notifikasi Dead Cross Valid
         if dead and is_spike_vol and is_sudut_tajam:
             pesan = (
                 f"{mode_scan}\n"
