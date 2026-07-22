@@ -36,10 +36,10 @@ def get_usd_to_idr():
 
 def cek_tekanan_order_book(exchange, symbol):
     try:
-        # Mengambil 10 baris teratas order book (bids dan asks)
-        order_book = exchange.fetch_order_book(symbol, limit=10)
-        bids = order_book['bids']
-        asks = order_book['asks']
+        # Ambil order book secara default tanpa limit, lalu slice 10 teratas di Python
+        order_book = exchange.fetch_order_book(symbol)
+        bids = order_book['bids'][:10]
+        asks = order_book['asks'][:10]
         
         total_bid_volume = sum([item[1] for item in bids])
         total_ask_volume = sum([item[1] for item in asks])
@@ -51,7 +51,9 @@ def cek_tekanan_order_book(exchange, symbol):
             return "🔴 Tembok Jual (Asks) Tebal"
         else:
             return "⚪ Order Book Netral"
-    except Exception:
+    except Exception as e:
+        # Cetak error aslinya di terminal/log biar ketahuan kalau ada masalah lain
+        print(f"Debug Error Order Book {symbol}: {e}")
         return "⚠️ Order Book Gagal Dimuat"
 
 async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
