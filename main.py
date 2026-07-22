@@ -41,7 +41,6 @@ def cek_aktivitas_transaksi(exchange, symbol):
         volume_jual = 0.0
         
         for trade in trades:
-            # CCXT menyediakan informasi apakah taker order itu 'buy' atau 'sell'
             side = trade.get('side')
             amount = trade.get('amount', 0)
             price = trade.get('price', 0)
@@ -52,13 +51,16 @@ def cek_aktivitas_transaksi(exchange, symbol):
             elif side == 'sell':
                 volume_jual += notional
                 
-        # Menilai dominasi aksi beli vs jual riil
-        if volume_beli > (volume_jual * 1.4):
-            return "🟢 Dominasi Buyer Agresif (Taker Buy)"
-        elif volume_jual > (volume_beli * 1.4):
-            return "🔴 Dominasi Seller Agresif (Taker Sell)"
-        else:
-            return "⚪ Aktivitas Pasar Seimbang"
+        total_volume = volume_beli + volume_jual
+        
+        if total_volume == 0:
+            return "Buy: 50.0% | Sell: 50.0%"
+            
+        # Menghitung persentase akurat
+        pct_beli = (volume_beli / total_volume) * 100
+        pct_jual = (volume_jual / total_volume) * 100
+        
+        return f"Buy: {pct_beli:.1f}% | Sell: {pct_jual:.1f}%"
             
     except Exception as e:
         print(f"Debug Error Trades {symbol}: {e}")
