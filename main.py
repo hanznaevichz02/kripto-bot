@@ -60,7 +60,7 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
     except Exception as e:
         print(f"Error pada fungsi kirim_laporan_porto: {e}")
 
-async def cek_koin(exchange, symbol, bot, usd_idr_rate):  # <-- Tambahkan usd_idr_rate di sini
+async def cek_koin(exchange, symbol, bot, usd_idr_rate):
     try:
         # Fetch data 1 jam
         bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
@@ -73,24 +73,48 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):  # <-- Tambahkan usd_id
         df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
         df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
         
-        # 2. Spike Detector
+        # 2. Spike Detector Base
         df['body'] = abs(df['close'] - df['open'])
         df['avg_body'] = df['body'].rolling(window=10).mean().shift(1)
         df['avg_vol'] = df['volume'].rolling(window=10).mean().shift(1)
         
-        curr = df.iloc[-2]
-        prev = df.iloc[-3]
+        # --- SISTEM DETEKSI WAKTU BERTINGKAT ---
+        now_wib = datetime.utcnow() + timedelta(hours=7)
+        menit_sekarang = now_wib.minute
         
-        # 3. Perhitungan Pivot S2 & R2
+        if menit_sekarang < 30:
+            # Mode A: Candle Selesai (Cron jam XX:05)
+            curr_idx = -2
+            prev_idx = -3
+            mode_scan = "🎯 *[1H MATANG]*"
+            pengali_vol_live = 1.0  # Volume dibaca utuh
+        else:
+            # Mode B: Candle Berjalan (Cron jam XX:35)
+            curr_idx = -1
+            prev_idx = -2
+            mode_scan = "⚠️ *[EARLY WARNING]*"
+            # Proyeksi volume berjalan (60 menit / waktu berjalan)
+            pengali_vol_live = 60 / menit_sekarang 
+
+        curr = df.iloc[curr_idx]
+        prev = df.iloc[prev_idx]
+        
+        # 3. Perhitungan Pivot S2 & R2 (dan R3, S3)
+        range_harga = prev['high'] - prev['low']
         p = (prev['high'] + prev['low'] + prev['close']) / 3
-        r2 = p + (prev['high'] - prev['low'])
-        s2 = p - (prev['high'] - prev['low'])
+        r2 = p + range_harga
+        s2 = p - range_harga
+        r3 = p + (2 * range_harga) # Target Breakout
+        s3 = p - (2 * range_harga) # Target Breakdown
         
-        # Variabel Kondisi
+        # Variabel Kondisi (Dilengkapi Ekstrapolasi Volume)
         is_price_break = curr['close'] > r2
         is_price_breakdown = curr['close'] < s2
-        is_spike_body = curr['body'] > (df['avg_body'].iloc[-2] * SPIKE_MULTIPLIER)
-        is_spike_vol = curr['volume'] > (df['avg_vol'].iloc[-2] * VOL_MULTIPLIER)
+        is_spike_body = curr['body'] > (df['avg_body'].iloc[curr_idx] * SPIKE_MULTIPLIER)
+        
+        # Proyeksi Volume diimplementasikan di sini
+        vol_proyeksi = curr['volume'] * pengali_vol_live
+        is_spike_vol = vol_proyeksi > (df['avg_vol'].iloc[curr_idx] * VOL_MULTIPLIER)
         
         # Konversi harga ke IDR
         harga_idr = curr['close'] * usd_idr_rate
@@ -98,24 +122,76 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):  # <-- Tambahkan usd_id
         # 4. Logika Sinyal BREAKOUT / BREAKDOWN (Berjenjang)
         # Notif Konfirmasi (Paling Prioritas)
         if (is_price_break or is_price_breakdown) and is_spike_body and is_spike_vol:
-            tipe = "BREAKOUT" if is_price_break else "BREAKDOWN"
-            await bot.send_message(chat_id=CHAT_ID, text=f"✅ *KONFIRMASI {tipe} {symbol}*\nHarga: Rp {harga_idr:,.0f}\n(Body & Vol Spike Terpenuhi!)", parse_mode='Markdown')
+            if is_price_break:
+                tipe = "BREAKOUT"
+                target_idr = r3 * usd_idr_rate
+                prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (R3)"
+            else:
+                tipe = "BREAKDOWN"
+                target_idr = s3 * usd_idr_rate
+                prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (S3)"
+                
+            pesan = (
+                f"{mode_scan}\n"
+                f"✅ *KONFIRMASI {tipe} {symbol}*\n"
+                f"Harga: Rp {harga_idr:,.0f}\n"
+                f"_(Body & Vol Spike Terpenuhi!)_\n\n"
+                f"{prediksi}"
+            )
+            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
         # Notif Siaga (Body + Volume Spike saja)
         elif is_spike_body and is_spike_vol:
-            await bot.send_message(chat_id=CHAT_ID, text=f"⚠️ *SIAGA {symbol}*\nHarga: Rp {harga_idr:,.0f}\nBody & Volume Spike Terdeteksi!", parse_mode='Markdown')
+            pesan = (
+                f"{mode_scan}\n"
+                f"⚡ *SIAGA {symbol}*\n"
+                f"Harga: Rp {harga_idr:,.0f}\n"
+                f"_(Body & Volume Spike Terdeteksi!)_"
+            )
+            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
         # Notif Awal (Price Break + Body Spike saja)
         elif (is_price_break or is_price_breakdown) and is_spike_body:
-            tipe = "BREAKOUT" if is_price_break else "BREAKDOWN"
-            await bot.send_message(chat_id=CHAT_ID, text=f"🔍 *AWAL {tipe} {symbol}*\nHarga: Rp {harga_idr:,.0f}\nBody Spike Terdeteksi!", parse_mode='Markdown')
+            if is_price_break:
+                tipe = "BREAKOUT"
+                target_idr = r3 * usd_idr_rate
+                prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (R3)"
+            else:
+                tipe = "BREAKDOWN"
+                target_idr = s3 * usd_idr_rate
+                prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (S3)"
+
+            pesan = (
+                f"{mode_scan}\n"
+                f"🔍 *AWAL {tipe} {symbol}*\n"
+                f"Harga: Rp {harga_idr:,.0f}\n"
+                f"_(Body Spike Terdeteksi, Kekurangan Volume!)_\n\n"
+                f"{prediksi}"
+            )
+            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
-        # 5. Sinyal EMA CROSS (Tetap)
-        golden = (df['ema9'].iloc[-3] < df['ema21'].iloc[-3]) and (df['ema9'].iloc[-2] > df['ema21'].iloc[-2])
-        dead = (df['ema9'].iloc[-3] > df['ema21'].iloc[-3]) and (df['ema9'].iloc[-2] < df['ema21'].iloc[-2])
+        # 5. Sinyal EMA CROSS (Menggunakan indeks dinamis: curr_idx & prev_idx)
+        slope_ema9 = abs(df['ema9'].iloc[curr_idx] - df['ema9'].iloc[prev_idx]) / df['ema9'].iloc[prev_idx] * 100
+        is_sudut_tajam = slope_ema9 > 0.3  
         
-        if golden: await bot.send_message(chat_id=CHAT_ID, text=f"🔔 *GOLDEN CROSS {symbol}*", parse_mode='Markdown')
-        if dead: await bot.send_message(chat_id=CHAT_ID, text=f"🔔 *DEAD CROSS {symbol}*", parse_mode='Markdown')
+        golden = (df['ema9'].iloc[prev_idx] < df['ema21'].iloc[prev_idx]) and (df['ema9'].iloc[curr_idx] > df['ema21'].iloc[curr_idx])
+        dead = (df['ema9'].iloc[prev_idx] > df['ema21'].iloc[prev_idx]) and (df['ema9'].iloc[curr_idx] < df['ema21'].iloc[curr_idx])
+        
+        if golden and is_spike_vol and is_sudut_tajam:
+            pesan = (
+                f"{mode_scan}\n"
+                f"🔔 *GOLDEN CROSS VALID {symbol}*\n"
+                f"🚀 _Didukung Volume Spike & Sudut Mendongak!_"
+            )
+            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+            
+        if dead and is_spike_vol and is_sudut_tajam:
+            pesan = (
+                f"{mode_scan}\n"
+                f"🔔 *DEAD CROSS VALID {symbol}*\n"
+                f"📉 _Didukung Volume Spike & Sudut Menukik!_"
+            )
+            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
     except Exception as e:
         print(f"Error analisa {symbol}: {e}")
@@ -145,7 +221,7 @@ async def main():
     usd_idr_rate = get_usd_to_idr()
     now_wib = datetime.utcnow() + timedelta(hours=7)
     
-    # Eksekusi Analisa Sinyal (Pastikan usd_idr_rate ikut dikirim ke cek_koin)
+    # Eksekusi Analisa Sinyal
     for symbol in ASSET_LIST:
         print(f"DEBUG: Sedang cek {symbol}")
         await cek_koin(exchange, symbol, bot, usd_idr_rate)
