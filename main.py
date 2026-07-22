@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 TOKEN = os.getenv("TELEGRAM_TOKEN", "8801827940:AAH1KiGgn-Xq00-sm-uBcBegWGtQeY5UrOw")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "1103768791")
 
-SPIKE_MULTIPLIER = 3.0
-VOL_MULTIPLIER = 2.5
+SPIKE_MULTIPLIER = 2.5
+VOL_MULTIPLIER = 2.0
 
 PORTFOLIO = {
     'BTC/USDT': {'buy_price_idr': 1311140722, 'amount': 0.00076261}, 
