@@ -128,13 +128,15 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         curr = df.iloc[curr_idx]
         prev = df.iloc[prev_idx]
         
-        # 3. Perhitungan Pivot S2 & R2 (dan R3, S3)
+        # 3. Perhitungan Pivot S2, R2 hingga S4, R4
         range_harga = prev['high'] - prev['low']
         p = (prev['high'] + prev['low'] + prev['close']) / 3
         r2 = p + range_harga
         s2 = p - range_harga
         r3 = p + (2 * range_harga) 
         s3 = p - (2 * range_harga) 
+        r4 = p + (3 * range_harga)  # Tambahan R4
+        s4 = p - (3 * range_harga)  # Tambahan S4
         
         is_price_break = curr['close'] > r2
         is_price_breakdown = curr['close'] < s2
@@ -148,21 +150,23 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         # Ambil Status Aktivitas Transaksi Real-Time (Pengganti Order Book)
         status_aktivitas = cek_aktivitas_transaksi(exchange, symbol)
         
-        # 4. Logika Sinyal BREAKOUT / BREAKDOWN (Berjenjang)
+        # 4. Logika Sinyal BREAKOUT / BREAKDOWN (Berjenjang hingga S4/R4)
         if (is_price_break or is_price_breakdown) and is_spike_body and is_spike_vol:
             if is_price_break:
                 tipe = "BREAKOUT"
-                target_idr = r3 * usd_idr_rate
                 if curr['close'] >= r3:
-                    prediksi = f"⚠️ Harga sudah melampaui R3 (Rp {target_idr:,.0f})"
+                    target_idr = r4 * usd_idr_rate
+                    prediksi = f"⚠️ Sudah tembus R3! Perkiraan target lanjut: Rp {target_idr:,.0f} (R4)"
                 else:
+                    target_idr = r3 * usd_idr_rate
                     prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (R3)"
             else:
                 tipe = "BREAKDOWN"
-                target_idr = s3 * usd_idr_rate
                 if curr['close'] <= s3:
-                    prediksi = f"⚠️ Harga sudah menjebol S3 (Rp {target_idr:,.0f})"
+                    target_idr = s4 * usd_idr_rate
+                    prediksi = f"⚠️ Sudah jebol S3! Perkiraan target lanjut: Rp {target_idr:,.0f} (S4)"
                 else:
+                    target_idr = s3 * usd_idr_rate
                     prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (S3)"
                 
             pesan = (
@@ -188,17 +192,19 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         elif (is_price_break or is_price_breakdown) and is_spike_body:
             if is_price_break:
                 tipe = "BREAKOUT"
-                target_idr = r3 * usd_idr_rate
                 if curr['close'] >= r3:
-                    prediksi = f"⚠️ Harga sudah melampaui R3 (Rp {target_idr:,.0f})"
+                    target_idr = r4 * usd_idr_rate
+                    prediksi = f"⚠️ Sudah tembus R3! Perkiraan target lanjut: Rp {target_idr:,.0f} (R4)"
                 else:
+                    target_idr = r3 * usd_idr_rate
                     prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (R3)"
             else:
                 tipe = "BREAKDOWN"
-                target_idr = s3 * usd_idr_rate
                 if curr['close'] <= s3:
-                    prediksi = f"⚠️ Harga sudah menjebol S3 (Rp {target_idr:,.0f})"
+                    target_idr = s4 * usd_idr_rate
+                    prediksi = f"⚠️ Sudah jebol S3! Perkiraan target lanjut: Rp {target_idr:,.0f} (S4)"
                 else:
+                    target_idr = s3 * usd_idr_rate
                     prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (S3)"
 
             pesan = (
