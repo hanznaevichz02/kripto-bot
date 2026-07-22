@@ -153,11 +153,17 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
             if is_price_break:
                 tipe = "BREAKOUT"
                 target_idr = r3 * usd_idr_rate
-                prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (R3)"
+                if curr['close'] >= r3:
+                    prediksi = f"⚠️ Harga sudah melampaui R3 (Rp {target_idr:,.0f})"
+                else:
+                    prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (R3)"
             else:
                 tipe = "BREAKDOWN"
                 target_idr = s3 * usd_idr_rate
-                prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (S3)"
+                if curr['close'] <= s3:
+                    prediksi = f"⚠️ Harga sudah menjebol S3 (Rp {target_idr:,.0f})"
+                else:
+                    prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (S3)"
                 
             pesan = (
                 f"{mode_scan}\n"
@@ -183,11 +189,17 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
             if is_price_break:
                 tipe = "BREAKOUT"
                 target_idr = r3 * usd_idr_rate
-                prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (R3)"
+                if curr['close'] >= r3:
+                    prediksi = f"⚠️ Harga sudah melampaui R3 (Rp {target_idr:,.0f})"
+                else:
+                    prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (R3)"
             else:
                 tipe = "BREAKDOWN"
                 target_idr = s3 * usd_idr_rate
-                prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (S3)"
+                if curr['close'] <= s3:
+                    prediksi = f"⚠️ Harga sudah menjebol S3 (Rp {target_idr:,.0f})"
+                else:
+                    prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (S3)"
 
             pesan = (
                 f"{mode_scan}\n"
