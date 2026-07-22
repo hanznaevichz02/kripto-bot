@@ -20,7 +20,7 @@ PORTFOLIO = {
 
 ASSET_LIST = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
-    'ADA/USDT', 'LTC/USDT', 'AAVE/USDT', 'ONDO/USDT','DOT/USDT',
+    'ADA/USDT', 'LTC/USDT', 'AAVE/USDT', 'ONDO/USDT', 'DOT/USDT',
     'LINK/USDT', 'BCH/USDT'
 ]
 
@@ -32,27 +32,37 @@ def get_usd_to_idr():
     except Exception:
         return 16000 
 
-def cek_tekanan_order_book(exchange, symbol):
+def cek_aktivitas_transaksi(exchange, symbol):
     try:
-        # Ambil order book secara default tanpa limit, lalu slice 10 teratas di Python
-        order_book = exchange.fetch_order_book(symbol)
-        bids = order_book['bids'][:10]
-        asks = order_book['asks'][:10]
+        # Mengambil data transaksi terakhir (recent trades) di pasar
+        trades = exchange.fetch_trades(symbol, limit=50)
         
-        total_bid_volume = sum([item[1] for item in bids])
-        total_ask_volume = sum([item[1] for item in asks])
+        volume_beli = 0.0
+        volume_jual = 0.0
         
-        # Logika Imbalance Ratio
-        if total_bid_volume > (total_ask_volume * 1.5):
-            return "🟢 Dinding Beli (Bids) Tebal"
-        elif total_ask_volume > (total_bid_volume * 1.5):
-            return "🔴 Tembok Jual (Asks) Tebal"
+        for trade in trades:
+            # CCXT menyediakan informasi apakah taker order itu 'buy' atau 'sell'
+            side = trade.get('side')
+            amount = trade.get('amount', 0)
+            price = trade.get('price', 0)
+            notional = amount * price  # Nilai transaksi dalam USDT
+            
+            if side == 'buy':
+                volume_beli += notional
+            elif side == 'sell':
+                volume_jual += notional
+                
+        # Menilai dominasi aksi beli vs jual riil
+        if volume_beli > (volume_jual * 1.4):
+            return "🟢 Dominasi Buyer Agresif (Taker Buy)"
+        elif volume_jual > (volume_beli * 1.4):
+            return "🔴 Dominasi Seller Agresif (Taker Sell)"
         else:
-            return "⚪ Order Book Netral"
+            return "⚪ Aktivitas Pasar Seimbang"
+            
     except Exception as e:
-        # Cetak error aslinya di terminal/log biar ketahuan kalau ada masalah lain
-        print(f"Debug Error Order Book {symbol}: {e}")
-        return "⚠️ Order Book Gagal Dimuat"
+        print(f"Debug Error Trades {symbol}: {e}")
+        return "⚠️ Data Transaksi Gagal Dimuat"
 
 async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
     try:
@@ -133,8 +143,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         
         harga_idr = curr['close'] * usd_idr_rate
         
-        # Ambil Status Order Book Real-Time
-        status_ob = cek_tekanan_order_book(exchange, symbol)
+        # Ambil Status Aktivitas Transaksi Real-Time (Pengganti Order Book)
+        status_aktivitas = cek_aktivitas_transaksi(exchange, symbol)
         
         # 4. Logika Sinyal BREAKOUT / BREAKDOWN (Berjenjang)
         if (is_price_break or is_price_breakdown) and is_spike_body and is_spike_vol:
@@ -152,7 +162,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"✅ *KONFIRMASI {tipe} {symbol}*\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
                 f"_(Body & Vol Spike Terpenuhi!)_\n"
-                f"Order Book: {status_ob}\n\n"
+                f"Aktivitas: {status_aktivitas}\n\n"
                 f"{prediksi}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
@@ -163,7 +173,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"⚡ *SIAGA {symbol}*\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
                 f"_(Body & Volume Spike Terdeteksi!)_\n"
-                f"Order Book: {status_ob}"
+                f"Aktivitas: {status_aktivitas}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
@@ -182,7 +192,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"🔍 *AWAL {tipe} {symbol}*\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
                 f"_(Body Spike Terdeteksi, Kekurangan Volume!)_\n"
-                f"Order Book: {status_ob}\n\n"
+                f"Aktivitas: {status_aktivitas}\n\n"
                 f"{prediksi}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
@@ -199,7 +209,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"{mode_scan}\n"
                 f"🔔 *GOLDEN CROSS VALID {symbol}*\n"
                 f"🚀 _Didukung Volume Spike & Sudut Mendongak!_\n"
-                f"Order Book: {status_ob}"
+                f"Aktivitas: {status_aktivitas}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
@@ -208,7 +218,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"{mode_scan}\n"
                 f"🔔 *DEAD CROSS VALID {symbol}*\n"
                 f"📉 _Didukung Volume Spike & Sudut Menukik!_\n"
-                f"Order Book: {status_ob}"
+                f"Aktivitas: {status_aktivitas}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
