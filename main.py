@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-SPIKE_MULTIPLIER = 3.0
-VOL_MULTIPLIER = 2.5
+SPIKE_MULTIPLIER = 2.5
+VOL_MULTIPLIER = 2.0
 
 PORTFOLIO = {
     'BTC/USDT': {'buy_price_idr': 1311140722, 'amount': 0.00076261}, 
@@ -107,8 +107,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         
         # 2. Spike Detector Base
         df['body'] = abs(df['close'] - df['open'])
-        df['avg_body'] = df['body'].rolling(window=10).mean().shift(1)
-        df['avg_vol'] = df['volume'].rolling(window=10).mean().shift(1)
+        df['avg_body'] = df['body'].rolling(window=5).mean().shift(1)
+        df['avg_vol'] = df['volume'].rolling(window=5).mean().shift(1)
         
         # --- SISTEM DETEKSI WAKTU BERTINGKAT ---
         now_wib = datetime.utcnow() + timedelta(hours=7)
