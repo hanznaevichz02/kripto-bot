@@ -237,7 +237,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
             
         # 6. Sinyal EMA CROSS
         slope_ema9 = abs(df['ema9'].iloc[curr_idx] - df['ema9'].iloc[prev_idx]) / df['ema9'].iloc[prev_idx] * 100
-        is_sudut_tajam = slope_ema9 > 0.25  
+        is_sudut_tajam = slope_ema9 > 0.3  
         
         golden = (df['ema9'].iloc[prev_idx] < df['ema21'].iloc[prev_idx]) and (df['ema9'].iloc[curr_idx] > df['ema21'].iloc[curr_idx])
         dead = (df['ema9'].iloc[prev_idx] > df['ema21'].iloc[prev_idx]) and (df['ema9'].iloc[curr_idx] < df['ema21'].iloc[prev_idx])
