@@ -7,8 +7,8 @@ from telegram import Bot
 from datetime import datetime, timedelta
 
 # --- KONFIGURASI ---
-TOKEN = os.getenv("TELEGRAM_TOKEN", "8801827940:AAH1KiGgn-Xq00-sm-uBcBegWGtQeY5UrOw")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "1103768791")
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 SPIKE_MULTIPLIER = 2.5
 VOL_MULTIPLIER = 2.0
