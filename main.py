@@ -34,7 +34,6 @@ def get_usd_to_idr():
 
 def cek_aktivitas_transaksi(exchange, symbol):
     try:
-        # Mengambil data transaksi terakhir (recent trades) di pasar
         trades = exchange.fetch_trades(symbol, limit=50)
         
         volume_beli = 0.0
@@ -44,7 +43,7 @@ def cek_aktivitas_transaksi(exchange, symbol):
             side = trade.get('side')
             amount = trade.get('amount', 0)
             price = trade.get('price', 0)
-            notional = amount * price  # Nilai transaksi dalam USDT
+            notional = amount * price 
             
             if side == 'buy':
                 volume_beli += notional
@@ -56,7 +55,6 @@ def cek_aktivitas_transaksi(exchange, symbol):
         if total_volume == 0:
             return "Buy: 50.0% | Sell: 50.0%"
             
-        # Menghitung persentase akurat
         pct_beli = (volume_beli / total_volume) * 100
         pct_jual = (volume_jual / total_volume) * 100
         
@@ -94,9 +92,8 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
 
 async def cek_koin(exchange, symbol, bot, usd_idr_rate):
     try:
-        # Fetch data 1 jam
         bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
-        if len(bars) < 30:
+        if len(bars) < 40:
             return
             
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -135,8 +132,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         s2 = p - range_harga
         r3 = p + (2 * range_harga) 
         s3 = p - (2 * range_harga) 
-        r4 = p + (3 * range_harga)  # Tambahan R4
-        s4 = p - (3 * range_harga)  # Tambahan S4
+        r4 = p + (3 * range_harga)  
+        s4 = p - (3 * range_harga)  
         
         is_price_break = curr['close'] > r2
         is_price_breakdown = curr['close'] < s2
@@ -146,11 +143,29 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         is_spike_vol = vol_proyeksi > (df['avg_vol'].iloc[curr_idx] * VOL_MULTIPLIER)
         
         harga_idr = curr['close'] * usd_idr_rate
-        
-        # Ambil Status Aktivitas Transaksi Real-Time (Pengganti Order Book)
         status_aktivitas = cek_aktivitas_transaksi(exchange, symbol)
         
-        # 4. Logika Sinyal BREAKOUT / BREAKDOWN (Berjenjang hingga S4/R4)
+        # --- 4. LOGIKA TAMBAHAN: HIGHER HIGH (HH) & HIGHER LOW (HL) ---
+        # Mencari titik Swing High (puncak lokal) dan Swing Low (lembah lokal) dari 20 candle terakhir
+        recent_window = df.iloc[-20:]
+        recent_high = recent_window['high'].max()
+        recent_low = recent_window['low'].min()
+        
+        # Bandingkan dengan gelombang sebelumnya (misal 20 candle sebelum jendela tersebut)
+        prev_window = df.iloc[-20:-10]
+        prev_high = prev_window['high'].max()
+        prev_low = prev_window['low'].min()
+        
+        is_higher_high = recent_high > prev_high
+        is_higher_low = recent_low > prev_low
+        
+        struktur_pasar = ""
+        if is_higher_high and is_higher_low:
+            struktur_pasar = "\n📈 *Struktur Market: Uptrend Kuat (HH & HL Terbentuk)*"
+        elif is_higher_high:
+            struktur_pasar = "\n↗️ *Struktur Market: Potensi HH (Puncak Baru)*"
+
+        # 5. Logika Sinyal BREAKOUT / BREAKDOWN (Berjenjang hingga S4/R4)
         if (is_price_break or is_price_breakdown) and is_spike_body and is_spike_vol:
             if is_price_break:
                 tipe = "BREAKOUT"
@@ -174,7 +189,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"✅ *KONFIRMASI {tipe} {symbol}*\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
                 f"_(Body & Vol Spike Terpenuhi!)_\n"
-                f"Aktivitas: {status_aktivitas}\n\n"
+                f"Aktivitas: {status_aktivitas}"
+                f"{struktur_pasar}\n\n"
                 f"{prediksi}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
@@ -186,6 +202,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"Harga: Rp {harga_idr:,.0f}\n"
                 f"_(Body & Volume Spike Terdeteksi!)_\n"
                 f"Aktivitas: {status_aktivitas}"
+                f"{struktur_pasar}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
@@ -212,17 +229,18 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"🔍 *AWAL {tipe} {symbol}*\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
                 f"_(Body Spike Terdeteksi, Kekurangan Volume!)_\n"
-                f"Aktivitas: {status_aktivitas}\n\n"
+                f"Aktivitas: {status_aktivitas}"
+                f"{struktur_pasar}\n\n"
                 f"{prediksi}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
-        # 5. Sinyal EMA CROSS
+        # 6. Sinyal EMA CROSS
         slope_ema9 = abs(df['ema9'].iloc[curr_idx] - df['ema9'].iloc[prev_idx]) / df['ema9'].iloc[prev_idx] * 100
-        is_sudut_tajam = slope_ema9 > 0.3  
+        is_sudut_tajam = slope_ema9 > 0.25  
         
         golden = (df['ema9'].iloc[prev_idx] < df['ema21'].iloc[prev_idx]) and (df['ema9'].iloc[curr_idx] > df['ema21'].iloc[curr_idx])
-        dead = (df['ema9'].iloc[prev_idx] > df['ema21'].iloc[prev_idx]) and (df['ema9'].iloc[curr_idx] < df['ema21'].iloc[curr_idx])
+        dead = (df['ema9'].iloc[prev_idx] > df['ema21'].iloc[prev_idx]) and (df['ema9'].iloc[curr_idx] < df['ema21'].iloc[prev_idx])
         
         if golden and is_spike_vol and is_sudut_tajam:
             pesan = (
@@ -230,6 +248,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"🔔 *GOLDEN CROSS VALID {symbol}*\n"
                 f"🚀 _Didukung Volume Spike & Sudut Mendongak!_\n"
                 f"Aktivitas: {status_aktivitas}"
+                f"{struktur_pasar}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
@@ -239,6 +258,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"🔔 *DEAD CROSS VALID {symbol}*\n"
                 f"📉 _Didukung Volume Spike & Sudut Menukik!_\n"
                 f"Aktivitas: {status_aktivitas}"
+                f"{struktur_pasar}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
@@ -271,7 +291,7 @@ async def main():
     now_wib = datetime.utcnow() + timedelta(hours=7)
     
     for symbol in ASSET_LIST:
-        print(f"DEBUG: Sedang cek {symbol}")
+        print(f"DEBUG: Sedang mencheck {symbol}")
         await cek_koin(exchange, symbol, bot, usd_idr_rate)
         await asyncio.sleep(2) 
     
