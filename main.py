@@ -7,8 +7,8 @@ from telegram import Bot
 from datetime import datetime, timedelta
 
 # --- KONFIGURASI ---
-TOKEN = os.getenv("TELEGRAM_TOKEN", "GANTI_DENGAN_TOKEN_BOT_MU")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "GANTI_DENGAN_CHAT_ID_MU")
+TOKEN = os.getenv("TELEGRAM_TOKEN", "8801827940:AAH1KiGgn-Xq00-sm-uBcBegWGtQeY5UrOw")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "1103768791")
 
 SPIKE_MULTIPLIER = 2.5
 VOL_MULTIPLIER = 2.0
@@ -33,6 +33,26 @@ def get_usd_to_idr():
         return response.json()['rates']['IDR']
     except Exception:
         return 16000 
+
+def cek_tekanan_order_book(exchange, symbol):
+    try:
+        # Mengambil 10 baris teratas order book (bids dan asks)
+        order_book = exchange.fetch_order_book(symbol, limit=10)
+        bids = order_book['bids']
+        asks = order_book['asks']
+        
+        total_bid_volume = sum([item[1] for item in bids])
+        total_ask_volume = sum([item[1] for item in asks])
+        
+        # Logika Imbalance Ratio
+        if total_bid_volume > (total_ask_volume * 1.5):
+            return "🟢 Dinding Beli (Bids) Tebal"
+        elif total_ask_volume > (total_bid_volume * 1.5):
+            return "🔴 Tembok Jual (Asks) Tebal"
+        else:
+            return "⚪ Order Book Netral"
+    except Exception:
+        return "⚠️ Order Book Gagal Dimuat"
 
 async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
     try:
@@ -83,17 +103,14 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         menit_sekarang = now_wib.minute
         
         if menit_sekarang < 30:
-            # Mode A: Candle Selesai (Cron jam XX:05)
             curr_idx = -2
             prev_idx = -3
             mode_scan = "🎯 *[1H MATANG]*"
-            pengali_vol_live = 1.0  # Volume dibaca utuh
+            pengali_vol_live = 1.0 
         else:
-            # Mode B: Candle Berjalan (Cron jam XX:35)
             curr_idx = -1
             prev_idx = -2
             mode_scan = "⚠️ *[EARLY WARNING]*"
-            # Proyeksi volume berjalan (60 menit / waktu berjalan)
             pengali_vol_live = 60 / menit_sekarang 
 
         curr = df.iloc[curr_idx]
@@ -104,23 +121,22 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         p = (prev['high'] + prev['low'] + prev['close']) / 3
         r2 = p + range_harga
         s2 = p - range_harga
-        r3 = p + (2 * range_harga) # Target Breakout
-        s3 = p - (2 * range_harga) # Target Breakdown
+        r3 = p + (2 * range_harga) 
+        s3 = p - (2 * range_harga) 
         
-        # Variabel Kondisi (Dilengkapi Ekstrapolasi Volume)
         is_price_break = curr['close'] > r2
         is_price_breakdown = curr['close'] < s2
         is_spike_body = curr['body'] > (df['avg_body'].iloc[curr_idx] * SPIKE_MULTIPLIER)
         
-        # Proyeksi Volume diimplementasikan di sini
         vol_proyeksi = curr['volume'] * pengali_vol_live
         is_spike_vol = vol_proyeksi > (df['avg_vol'].iloc[curr_idx] * VOL_MULTIPLIER)
         
-        # Konversi harga ke IDR
         harga_idr = curr['close'] * usd_idr_rate
         
+        # Ambil Status Order Book Real-Time
+        status_ob = cek_tekanan_order_book(exchange, symbol)
+        
         # 4. Logika Sinyal BREAKOUT / BREAKDOWN (Berjenjang)
-        # Notif Konfirmasi (Paling Prioritas)
         if (is_price_break or is_price_breakdown) and is_spike_body and is_spike_vol:
             if is_price_break:
                 tipe = "BREAKOUT"
@@ -135,22 +151,22 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"{mode_scan}\n"
                 f"✅ *KONFIRMASI {tipe} {symbol}*\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
-                f"_(Body & Vol Spike Terpenuhi!)_\n\n"
+                f"_(Body & Vol Spike Terpenuhi!)_\n"
+                f"Order Book: {status_ob}\n\n"
                 f"{prediksi}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
-        # Notif Siaga (Body + Volume Spike saja)
         elif is_spike_body and is_spike_vol:
             pesan = (
                 f"{mode_scan}\n"
                 f"⚡ *SIAGA {symbol}*\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
-                f"_(Body & Volume Spike Terdeteksi!)_"
+                f"_(Body & Volume Spike Terdeteksi!)_\n"
+                f"Order Book: {status_ob}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
-        # Notif Awal (Price Break + Body Spike saja)
         elif (is_price_break or is_price_breakdown) and is_spike_body:
             if is_price_break:
                 tipe = "BREAKOUT"
@@ -165,12 +181,13 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"{mode_scan}\n"
                 f"🔍 *AWAL {tipe} {symbol}*\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
-                f"_(Body Spike Terdeteksi, Kekurangan Volume!)_\n\n"
+                f"_(Body Spike Terdeteksi, Kekurangan Volume!)_\n"
+                f"Order Book: {status_ob}\n\n"
                 f"{prediksi}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
-        # 5. Sinyal EMA CROSS (Menggunakan indeks dinamis: curr_idx & prev_idx)
+        # 5. Sinyal EMA CROSS
         slope_ema9 = abs(df['ema9'].iloc[curr_idx] - df['ema9'].iloc[prev_idx]) / df['ema9'].iloc[prev_idx] * 100
         is_sudut_tajam = slope_ema9 > 0.3  
         
@@ -181,7 +198,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
             pesan = (
                 f"{mode_scan}\n"
                 f"🔔 *GOLDEN CROSS VALID {symbol}*\n"
-                f"🚀 _Didukung Volume Spike & Sudut Mendongak!_"
+                f"🚀 _Didukung Volume Spike & Sudut Mendongak!_\n"
+                f"Order Book: {status_ob}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             
@@ -189,7 +207,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
             pesan = (
                 f"{mode_scan}\n"
                 f"🔔 *DEAD CROSS VALID {symbol}*\n"
-                f"📉 _Didukung Volume Spike & Sudut Menukik!_"
+                f"📉 _Didukung Volume Spike & Sudut Menukik!_\n"
+                f"Order Book: {status_ob}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
@@ -221,13 +240,11 @@ async def main():
     usd_idr_rate = get_usd_to_idr()
     now_wib = datetime.utcnow() + timedelta(hours=7)
     
-    # Eksekusi Analisa Sinyal
     for symbol in ASSET_LIST:
         print(f"DEBUG: Sedang cek {symbol}")
         await cek_koin(exchange, symbol, bot, usd_idr_rate)
         await asyncio.sleep(2) 
     
-    # Eksekusi Laporan Porto
     if now_wib.hour in [9, 14, 20] and now_wib.minute < 15:
         print("DEBUG: Mengirim laporan portofolio...")
         await kirim_laporan_porto(bot, exchange, usd_idr_rate)
