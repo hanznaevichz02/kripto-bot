@@ -65,46 +65,47 @@ def cek_aktivitas_transaksi(exchange, symbol):
         return "⚠️ Data Transaksi Gagal Dimuat"
 
 async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
-  try:
-    # Buat daftar untuk menampung teks setiap aset
-    laporan_list = ["📊 *LAPORAN PORTOFOLIO*\n"]
+    try:
+        header = "📊 *LAPORAN PORTOFOLIO*\n"
+        laporan_items = []
 
-    for symbol, p in PORTFOLIO.items():
-      try:
-        ticker = exchange.fetch_ticker(symbol)
-        curr_price_idr = ticker["last"] * usd_idr_rate
+        for symbol, p in PORTFOLIO.items():
+            try:
+                ticker = exchange.fetch_ticker(symbol)
+                curr_price_idr = ticker["last"] * usd_idr_rate
 
-        modal_idr = p["buy_price_idr"] * p["amount"]
-        current_value_idr = curr_price_idr * p["amount"]
-        pnl_val = current_value_idr - modal_idr
-        pnl_pct = (pnl_val / modal_idr) * 100
-        status = "🟢 PROFIT" if pnl_pct >= 0 else "🔴 LOSS"
+                modal_idr = p["buy_price_idr"] * p["amount"]
+                current_value_idr = curr_price_idr * p["amount"]
+                pnl_val = current_value_idr - modal_idr
+                pnl_pct = (pnl_val / modal_idr) * 100
+                status = "🟢 PROFIT" if pnl_pct >= 0 else "🔴 LOSS"
 
-        status_aktivitas = cek_aktivitas_transaksi(exchange, symbol)
+                status_aktivitas = cek_aktivitas_transaksi(exchange, symbol)
 
-        item_text = f"""*{symbol}*
-        
+                # Format teks item dibuat rata kiri rapi
+                item_text = f"""*{symbol}*
 Status: {status}
 {status_aktivitas}
 
 Beli: Rp {p['buy_price_idr']:,.0f}
 Skrg: Rp {curr_price_idr:,.0f}
-
 P/L: {pnl_pct:.2f}% (Rp {pnl_val:,.0f})"""
 
-        laporan_list.append(item_text)
-      except Exception as e:
-        print(f"Gagal report {symbol}: {e}")
+                laporan_items.append(item_text)
+            except Exception as e:
+                print(f"Gagal report {symbol}: {e}")
 
-    # Jika ada isi portofolio yang berhasil diproses, gabungkan dan kirim sekali saja
-    if len(laporan_list) > 1:
-      pesan_lengkap = "\n\n".join(laporan_list)
-      await bot.send_message(
-          chat_id=CHAT_ID, text=pesan_lengkap, parse_mode="Markdown"
-      )
+        # Gabungkan item dengan garis pembatas jika ada data
+        if laporan_items:
+            garis_pembatas = "\n\n───────────────\n\n"
+            pesan_lengkap = header + "\n" + garis_pembatas.join(laporan_items)
+            
+            await bot.send_message(
+                chat_id=CHAT_ID, text=pesan_lengkap, parse_mode="Markdown"
+            )
 
-  except Exception as e:
-    print(f"Error pada fungsi kirim_laporan_porto: {e}")
+    except Exception as e:
+        print(f"Error pada fungsi kirim_laporan_porto: {e}")
 
 async def cek_koin(exchange, symbol, bot, usd_idr_rate):
     try:
