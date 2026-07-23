@@ -84,6 +84,7 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
 Status: {status}
 {status_aktivitas}
 
+
 Beli: Rp {modal_idr / p['amount']:,.0f}
 Sekarang: Rp {curr_price_idr:,.0f}
 P/L: {pnl_pct:.2f}% (Rp {pnl_val:,.0f})"""
