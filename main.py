@@ -4,7 +4,7 @@ import ccxt
 import pandas as pd
 import requests
 from telegram import Bot
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # --- KONFIGURASI ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -81,15 +81,15 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
                 status_aktivitas = cek_aktivitas_transaksi(exchange, symbol)
                 
                 msg = f"""*{symbol}*
+                
 Status: {status}
 {status_aktivitas}
 
+Beli: Rp {p['buy_price_idr']:,.0f}
+Skrg: Rp {curr_price_idr:,.0f}
 
-Beli: Rp {modal_idr / p['amount']:,.0f}
-Sekarang: Rp {curr_price_idr:,.0f}
 P/L: {pnl_pct:.2f}% (Rp {pnl_val:,.0f})"""
-                       
-                
+                        
                 await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
                 await asyncio.sleep(1)
             except Exception as e:
@@ -122,7 +122,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         df['avg_vol'] = df['volume'].rolling(window=3).mean().shift(1)
         
         # --- SISTEM DETEKSI WAKTU BERTINGKAT ---
-        now_wib = datetime.utcnow() + timedelta(hours=7)
+        now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
         menit_sekarang = now_wib.minute
         
         if menit_sekarang < 30:
@@ -164,8 +164,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         sl_bullish = harga_idr - (1.5 * atr_idr)
         tp_bullish = harga_idr + (2.0 * atr_idr)
         
-        saran_atr_bull = f"🎯 *Rekomendasi ATR (Spot Entry):*\n🛡️ SL: Rp {sl_bullish:,.0f} (-1.5x ATR)\n🚀 TP: Rp {tp_bullish:,.0f} (+2.0x ATR)"
-        saran_atr_bear = f"🎯 *Rekomendasi (Spot Market):*\n⚠️ _Sinyal Jual/Turun! Hindari Beli (Wait & See)._\n🛡️ _Pertimbangkan Cut Loss jika sedang hold._"
+        saran_atr_bull = f"🎯 *Rekomendasi:*\n- Sinyal NAIK...!\nSL: Rp {sl_bullish:,.0f}\n- TP: Rp {tp_bullish:,.0f}"
+        saran_atr_bear = f"🎯 *Rekomendasi:*\n- Sinyal TURUN, Jangan Beli, Wait & See._\n- Pertimbangkan Cut Loss jika sedang hold._"
 
         # --- 4. LOGIKA TAMBAHAN: HIGHER HIGH (HH) & HIGHER LOW (HL) ---
         recent_window = df.iloc[-14:]
@@ -181,9 +181,9 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         
         struktur_pasar = ""
         if is_higher_high and is_higher_low:
-            struktur_pasar = "\n📈 *Struktur Market: Uptrend Kuat (HH & HL Terbentuk)*"
+            struktur_pasar = "\n📈 *Struktur Market: Pola NAIK Kuat (HH & HL Terbentuk)*"
         elif is_higher_high:
-            struktur_pasar = "\n↗️ *Struktur Market: Potensi HH (Puncak Baru)*"
+            struktur_pasar = "\n↗️ *Struktur Market: Potensi Puncak Baru*"
 
         pesan_sinyal = None
 
@@ -193,26 +193,26 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 tipe = "BELI"
                 if curr['close'] >= r3:
                     target_idr = r4 * usd_idr_rate
-                    prediksi = f"⚠️ Sudah tembus R3! Perkiraan target lanjut: Rp {target_idr:,.0f} (R4)"
+                    prediksi = f"⚠️ Tembus Atap-3! Perkiraan NAIK ke: Rp {target_idr:,.0f} (R4)"
                 else:
                     target_idr = r3 * usd_idr_rate
-                    prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (R3)"
+                    prediksi = f"Perkiraan NAIK ke Rp {target_idr:,.0f} (R3)"
                 info_atr = saran_atr_bull
             else:
                 tipe = "JUAL"
                 if curr['close'] <= s3:
                     target_idr = s4 * usd_idr_rate
-                    prediksi = f"⚠️ Sudah jebol S3! Perkiraan target lanjut: Rp {target_idr:,.0f} (S4)"
+                    prediksi = f"⚠️ Jebol Lantai-3! Perkiraan TURUN ke: Rp {target_idr:,.0f} (S4)"
                 else:
                     target_idr = s3 * usd_idr_rate
-                    prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (S3)"
+                    prediksi = f"Perkiraan TURUN ke Rp {target_idr:,.0f} (S3)"
                 info_atr = saran_atr_bear
                 
             pesan_sinyal = (
                 f"{mode_scan}\n"
                 f"✅ *KONFIRMASI {tipe} {symbol}*\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
-                f"_(Body & Vol Spike Terpenuhi!)_\n"
+                f"_(Body & Vol Ok!)_\n"
                 f"Aktivitas: {status_aktivitas}"
                 f"{struktur_pasar}\n\n"
                 f"{prediksi}\n\n"
@@ -224,7 +224,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"{mode_scan}\n"
                 f"⚡ *SIAGA BELI {symbol}*\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
-                f"_(Body & Volume Spike Terdeteksi!)_\n"
+                f"_(Body & Spike Ok!)_\n"
                 f"Aktivitas: {status_aktivitas}"
                 f"{struktur_pasar}\n\n"
                 f"{saran_atr_bull}"
@@ -235,26 +235,26 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 tipe = "BELI"
                 if curr['close'] >= r3:
                     target_idr = r4 * usd_idr_rate
-                    prediksi = f"⚠️ Sudah tembus R3! Perkiraan target lanjut: Rp {target_idr:,.0f} (R4)"
+                    prediksi = f"⚠️ Tembus Atap-3! Perkiraan NAIK ke: Rp {target_idr:,.0f} (R4)"
                 else:
                     target_idr = r3 * usd_idr_rate
-                    prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (R3)"
+                    prediksi = f"Perkiraan NAIK ke Rp {target_idr:,.0f} (R3)"
                 info_atr = saran_atr_bull
             else:
                 tipe = "JUAL"
                 if curr['close'] <= s3:
                     target_idr = s4 * usd_idr_rate
-                    prediksi = f"⚠️ Sudah jebol S3! Perkiraan target lanjut: Rp {target_idr:,.0f} (S4)"
+                    prediksi = f"⚠️ Jebol Lantai-3! Perkiraan TURUN ke: Rp {target_idr:,.0f} (S4)"
                 else:
                     target_idr = s3 * usd_idr_rate
-                    prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (S3)"
+                    prediksi = f"Perkiraan TURUN ke Rp {target_idr:,.0f} (S3)"
                 info_atr = saran_atr_bear
 
             pesan_sinyal = (
                 f"{mode_scan}\n"
                 f"🔍 *AWAL SINYAL {tipe} {symbol}*\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
-                f"_(Body Spike Terdeteksi, Kekurangan Volume!)_\n"
+                f"_(Spike Ok, Vol Kurang!)_\n"
                 f"Aktivitas: {status_aktivitas}"
                 f"{struktur_pasar}\n\n"
                 f"{prediksi}\n\n"
@@ -339,7 +339,7 @@ async def main():
     bot = Bot(token=TOKEN)
 
     usd_idr_rate = get_usd_to_idr()
-    now_wib = datetime.utcnow() + timedelta(hours=7)
+    now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
     
     for symbol in ASSET_LIST:
         print(f"DEBUG: Sedang mencheck {symbol}")
