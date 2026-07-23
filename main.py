@@ -11,7 +11,7 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 SPIKE_MULTIPLIER = 2.5
-VOL_MULTIPLIER = 1.5
+VOL_MULTIPLIER = 2.0
 
 PORTFOLIO = {
     'BTC/USDT': {'buy_price_idr': 1311140722, 'amount': 0.00076261}, 
@@ -78,7 +78,6 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
                 pnl_pct = (pnl_val / modal_idr) * 100
                 status = "🟢 PROFIT" if pnl_pct >= 0 else "🔴 LOSS"
                 
-                # Menambahkan kekuatan Buy & Sell berdasarkan aktivitas transaksi terkini
                 status_aktivitas = cek_aktivitas_transaksi(exchange, symbol)
                 
                 msg = (f"*{symbol}*\nStatus: {status}\n"
@@ -105,6 +104,13 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         # 1. EMA Calculations
         df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
         df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
+        
+        # --- PERHITUNGAN ATR 14 ---
+        tr0 = df['high'] - df['low']
+        tr1 = (df['high'] - df['close'].shift(1)).abs()
+        tr2 = (df['low'] - df['close'].shift(1)).abs()
+        df['tr'] = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1)
+        df['atr'] = df['tr'].rolling(window=14).mean()
         
         # 2. Spike Detector Base
         df['body'] = abs(df['close'] - df['open'])
@@ -147,8 +153,19 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         is_spike_vol = vol_proyeksi > (df['avg_vol'].iloc[curr_idx] * VOL_MULTIPLIER)
         
         harga_idr = curr['close'] * usd_idr_rate
+        atr_idr = curr['atr'] * usd_idr_rate
         status_aktivitas = cek_aktivitas_transaksi(exchange, symbol)
         
+        # --- HITUNG SL & TP DINAMIS BERDASARKAN ATR ---
+        sl_bullish = harga_idr - (1.5 * atr_idr)
+        tp_bullish = harga_idr + (2.0 * atr_idr)
+        
+        sl_bearish = harga_idr + (1.5 * atr_idr)
+        tp_bearish = harga_idr - (2.0 * atr_idr)
+        
+        saran_atr_bull = f"🎯 *Rekomendasi ATR (Bullish):*\n🛡️ SL: Rp {sl_bullish:,.0f} (-1.5x ATR)\n🚀 TP: Rp {tp_bullish:,.0f} (+2.0x ATR)"
+        saran_atr_bear = f"🎯 *Rekomendasi ATR (Bearish):*\n🛡️ SL: Rp {sl_bearish:,.0f} (+1.5x ATR)\n📉 TP: Rp {tp_bearish:,.0f} (-2.0x ATR)"
+
         # --- 4. LOGIKA TAMBAHAN: HIGHER HIGH (HH) & HIGHER LOW (HL) ---
         recent_window = df.iloc[-14:]
         recent_high = recent_window['high'].max()
@@ -179,6 +196,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 else:
                     target_idr = r3 * usd_idr_rate
                     prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (R3)"
+                info_atr = saran_atr_bull
             else:
                 tipe = "BREAKDOWN"
                 if curr['close'] <= s3:
@@ -187,6 +205,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 else:
                     target_idr = s3 * usd_idr_rate
                     prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (S3)"
+                info_atr = saran_atr_bear
                 
             pesan_sinyal = (
                 f"{mode_scan}\n"
@@ -195,7 +214,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"_(Body & Vol Spike Terpenuhi!)_\n"
                 f"Aktivitas: {status_aktivitas}"
                 f"{struktur_pasar}\n\n"
-                f"{prediksi}"
+                f"{prediksi}\n\n"
+                f"{info_atr}"
             )
             
         elif is_spike_body and is_spike_vol:
@@ -205,7 +225,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"Harga: Rp {harga_idr:,.0f}\n"
                 f"_(Body & Volume Spike Terdeteksi!)_\n"
                 f"Aktivitas: {status_aktivitas}"
-                f"{struktur_pasar}"
+                f"{struktur_pasar}\n\n"
+                f"{saran_atr_bull}"
             )
             
         elif (is_price_break or is_price_breakdown) and is_spike_body:
@@ -217,6 +238,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 else:
                     target_idr = r3 * usd_idr_rate
                     prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (R3)"
+                info_atr = saran_atr_bull
             else:
                 tipe = "BREAKDOWN"
                 if curr['close'] <= s3:
@@ -225,6 +247,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 else:
                     target_idr = s3 * usd_idr_rate
                     prediksi = f"Perkiraan target selanjutnya Rp {target_idr:,.0f} (S3)"
+                info_atr = saran_atr_bear
 
             pesan_sinyal = (
                 f"{mode_scan}\n"
@@ -233,7 +256,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"_(Body Spike Terdeteksi, Kekurangan Volume!)_\n"
                 f"Aktivitas: {status_aktivitas}"
                 f"{struktur_pasar}\n\n"
-                f"{prediksi}"
+                f"{prediksi}\n\n"
+                f"{info_atr}"
             )
 
         # 6. Sinyal EMA CROSS & PRA-GOLDEN CROSS
@@ -263,7 +287,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                     f"🪝 *PRA-GOLDEN CROSS {symbol}*\n"
                     f"⚡ _EMA 9 Melengkung Naik Mendekati EMA 21!_\n"
                     f"Aktivitas: {status_aktivitas}"
-                    f"{struktur_pasar}"
+                    f"{struktur_pasar}\n\n"
+                    f"{saran_atr_bull}"
                 )
             elif golden and is_spike_vol and is_sudut_tajam:
                 pesan_sinyal = (
@@ -271,7 +296,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                     f"🔔 *GOLDEN CROSS VALID {symbol}*\n"
                     f"🚀 _Didukung Volume Spike & Sudut Mendongak!_\n"
                     f"Aktivitas: {status_aktivitas}"
-                    f"{struktur_pasar}"
+                    f"{struktur_pasar}\n\n"
+                    f"{saran_atr_bull}"
                 )
             elif dead and is_spike_vol and is_sudut_tajam:
                 pesan_sinyal = (
@@ -279,7 +305,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                     f"🔔 *DEAD CROSS VALID {symbol}*\n"
                     f"📉 _Didukung Volume Spike & Sudut Menukik!_\n"
                     f"Aktivitas: {status_aktivitas}"
-                    f"{struktur_pasar}"
+                    f"{struktur_pasar}\n\n"
+                    f"{saran_atr_bear}"
                 )
 
         if pesan_sinyal:
