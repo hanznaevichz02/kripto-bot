@@ -150,20 +150,11 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         df['avg_body'] = df['body'].rolling(window=3).mean().shift(1)
         df['avg_vol'] = df['volume'].rolling(window=3).mean().shift(1)
         
-        # --- SISTEM DETEKSI WAKTU BERTINGKAT ---
-        now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
-        menit_sekarang = now_wib.minute
-        
-        if menit_sekarang < 30:
-            curr_idx = -2
-            prev_idx = -3
-            mode_scan = "🎯 *[Candle Close]*"
-            pengali_vol_live = 1.0 
-        else:
-            curr_idx = -1
-            prev_idx = -2
-            mode_scan = "⚠️ *[Candle Running]*"
-            pengali_vol_live = 60 / menit_sekarang 
+        # --- SCAN CANDLE CLOSE (1 JAM) ---
+        curr_idx = -2
+        prev_idx = -3
+        mode_scan = "🎯 *[Candle Close]*"
+        pengali_vol_live = 1.0
 
         curr = df.iloc[curr_idx]
         prev = df.iloc[prev_idx]
@@ -375,7 +366,7 @@ async def main():
         await cek_koin(exchange, symbol, bot, usd_idr_rate)
         await asyncio.sleep(2) 
     
-    if now_wib.hour in [9, 14, 20] and now_wib.minute < 15:
+    if now_wib.hour in [9, 14, 20]:
         print("DEBUG: Mengirim laporan portofolio...")
         await kirim_laporan_porto(bot, exchange, usd_idr_rate)
 
