@@ -174,8 +174,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         sl_bullish = harga_idr - (1.5 * atr_idr)
         tp_bullish = harga_idr + (2.0 * atr_idr)
         
-        saran_atr_bull = f"🎯 *Rekomendasi:*\n- Sinyal NAIK...!\nSL: Rp {sl_bullish:,.0f}\n- TP: Rp {tp_bullish:,.0f}"
-        saran_atr_bear = f"🎯 *Rekomendasi:*\n- Sinyal TURUN...!\nJangan Beli, Wait & See.\n- Pertimbangkan Cut Loss jika sedang hold."
+        saran_atr_bull = f"🎯 *Rekomendasi:*\n- Sinyal NAIK...!\n- SL: Rp {sl_bullish:,.0f}\n- TP: Rp {tp_bullish:,.0f}"
+        saran_atr_bear = f"🎯 *Rekomendasi:*\n- Sinyal TURUN...!\n- Pertimbangkan Cut Loss jika hold."
 
         # --- 4. LOGIKA TAMBAHAN: HIGHER HIGH (HH) & HIGHER LOW (HL) ---
         recent_window = df.iloc[-14:]
@@ -191,9 +191,9 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
         
         struktur_pasar = ""
         if is_higher_high and is_higher_low:
-            struktur_pasar = "\n📈 *Struktur Market: Pola NAIK Kuat (HH & HL Terbentuk)*"
+            struktur_pasar = "\n📈 *Pola NAIK Kuat (HH HL Muncul)*"
         elif is_higher_high:
-            struktur_pasar = "\n↗️ *Struktur Market: Potensi Puncak Baru*"
+            struktur_pasar = "\n↗️ *Potensi Puncak Baru*"
 
         pesan_sinyal = None
 
@@ -212,7 +212,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 tipe = "JUAL"
                 if curr['close'] <= s3:
                     target_idr = s4 * usd_idr_rate
-                    prediksi = f"⚠️ Jebol Lantai-3! TURUN ke: Rp {target_idr:,.0f} (S4)"
+                    prediksi = f"⚠️ Jebol Lantai-3!\n\n"
+                    TURUN ke: Rp {target_idr:,.0f} (S4)"
                 else:
                     target_idr = s3 * usd_idr_rate
                     prediksi = f"TURUN ke Rp {target_idr:,.0f} (S3)"
@@ -222,8 +223,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"{mode_scan}\n"
                 f"✅ *KONFIRMASI {tipe} {symbol}*\n\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
-                f"_(Body & Vol Ok!)_\n"
-                f"Aktivitas: {status_aktivitas}"
+                f"Aktivitas: {status_aktivitas}\n"
+                f"Candle OK & Vol OK...!\n\n"
                 f"{struktur_pasar}\n\n"
                 f"{prediksi}\n\n"
                 f"{info_atr}"
@@ -234,8 +235,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"{mode_scan}\n"
                 f"⚡ *SIAGA BELI {symbol}*\n\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
-                f"_(Body & Spike Ok!)_\n"
-                f"Aktivitas: {status_aktivitas}"
+                f"Aktivitas: {status_aktivitas}\n"
+                f"Candle OK & Spike OK...!\n\n"
                 f"{struktur_pasar}\n\n"
                 f"{saran_atr_bull}"
             )
@@ -245,7 +246,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 tipe = "BELI"
                 if curr['close'] >= r3:
                     target_idr = r4 * usd_idr_rate
-                    prediksi = f"⚠️ Tembus Atap-3! Perkiraan NAIK ke: Rp {target_idr:,.0f} (R4)"
+                    prediksi = f"⚠️ Tembus Atap-3! \n\n"
+                    Perkiraan NAIK ke: Rp {target_idr:,.0f} (R4)"
                 else:
                     target_idr = r3 * usd_idr_rate
                     prediksi = f"Perkiraan NAIK ke Rp {target_idr:,.0f} (R3)"
@@ -254,7 +256,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 tipe = "JUAL"
                 if curr['close'] <= s3:
                     target_idr = s4 * usd_idr_rate
-                    prediksi = f"⚠️ Jebol Lantai-3! Perkiraan TURUN ke: Rp {target_idr:,.0f} (S4)"
+                    prediksi = f"⚠️ Jebol Lantai-3!\nPerkiraan TURUN ke: Rp {target_idr:,.0f} (S4)"
                 else:
                     target_idr = s3 * usd_idr_rate
                     prediksi = f"Perkiraan TURUN ke Rp {target_idr:,.0f} (S3)"
@@ -264,8 +266,8 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"{mode_scan}\n"
                 f"🔍 *AWAL SINYAL {tipe} {symbol}*\n\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
+                f"Aktivitas: {status_aktivitas}\n"
                 f"_(Spike Ok, Vol Kurang!)_\n"
-                f"Aktivitas: {status_aktivitas}"
                 f"{struktur_pasar}\n\n"
                 f"{prediksi}\n\n"
                 f"{info_atr}"
@@ -296,7 +298,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 pesan_sinyal = (
                     f"{mode_scan}\n"
                     f"🪝 *POTENSI BELI (PRA-GOLDEN CROSS) {symbol}*\n"
-                    f"⚡ _EMA 9 Melengkung Naik Mendekati EMA 21!_\n"
+                    f"⚡ _EMA 9 Melengkung Naik Mendekati EMA 21!_\n\n"
                     f"Aktivitas: {status_aktivitas}"
                     f"{struktur_pasar}\n\n"
                     f"{saran_atr_bull}"
@@ -305,7 +307,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 pesan_sinyal = (
                     f"{mode_scan}\n"
                     f"🔔 *SINYAL BELI VALID (GOLDEN CROSS) {symbol}*\n"
-                    f"🚀 _Didukung Volume Spike & Sudut Mendongak!_\n"
+                    f"🚀 _Didukung Volume Spike & Sudut Mendongak!_\n\n"
                     f"Aktivitas: {status_aktivitas}"
                     f"{struktur_pasar}\n\n"
                     f"{saran_atr_bull}"
@@ -314,7 +316,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 pesan_sinyal = (
                     f"{mode_scan}\n"
                     f"🔔 *SINYAL JUAL VALID (DEAD CROSS) {symbol}*\n"
-                    f"📉 _Didukung Volume Spike & Sudut Menukik!_\n"
+                    f"📉 _Didukung Volume Spike & Sudut Menukik!_\n\n"
                     f"Aktivitas: {status_aktivitas}"
                     f"{struktur_pasar}\n\n"
                     f"{saran_atr_bear}"
