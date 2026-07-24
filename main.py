@@ -66,8 +66,9 @@ def cek_aktivitas_transaksi(exchange, symbol):
 
 async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
     try:
-        header = "📊 *LAPORAN PORTOFOLIO*\n"
         laporan_items = []
+        total_modal_idr = 0.0
+        total_val_idr = 0.0
 
         for symbol, p in PORTFOLIO.items():
             try:
@@ -77,29 +78,47 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
                 modal_idr = p["buy_price_idr"] * p["amount"]
                 current_value_idr = curr_price_idr * p["amount"]
                 pnl_val = current_value_idr - modal_idr
-                pnl_pct = (pnl_val / modal_idr) * 100
-                status = "🟢 PROFIT" if pnl_pct >= 0 else "🔴 LOSS"
+                pnl_pct = (pnl_val / modal_idr) * 100 if modal_idr > 0 else 0
 
+                # Akumulasi Total
+                total_modal_idr += modal_idr
+                total_val_idr += current_value_idr
+
+                status = "🟢 PROFIT" if pnl_pct >= 0 else "🔴 LOSS"
                 status_aktivitas = cek_aktivitas_transaksi(exchange, symbol)
 
-                # Format teks item dibuat rata kiri rapi
-                item_text = f"""*{symbol}*
-Status: {status}
-{status_aktivitas}
-
-Beli: Rp {p['buy_price_idr']:,.0f}
-Skrg: Rp {curr_price_idr:,.0f}
-P/L: {pnl_pct:.2f}% (Rp {pnl_val:,.0f})"""
+                item_text = (
+                    f"*{symbol}*\n"
+                    f"Status: {status}\n"
+                    f"{status_aktivitas}\n\n"
+                    f"Beli: Rp {p['buy_price_idr']:,.0f}\n"
+                    f"Skrg: Rp {curr_price_idr:,.0f}\n"
+                    f"P/L: {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})"
+                )
 
                 laporan_items.append(item_text)
             except Exception as e:
                 print(f"Gagal report {symbol}: {e}")
 
-        # Gabungkan item dengan garis pembatas jika ada data
+        # Menampilkan Total Portofolio Keseluruhan
         if laporan_items:
+            total_pnl_val = total_val_idr - total_modal_idr
+            total_pnl_pct = (total_pnl_val / total_modal_idr) * 100 if total_modal_idr > 0 else 0
+            total_status = "🟢 PROFIT" if total_pnl_val >= 0 else "🔴 LOSS"
+
+            header_total = (
+                f"📊 *LAPORAN PORTOFOLIO*\n"
+                f"───────────────\n"
+                f"💰 *TOTAL PORTOFOLIO*\n"
+                f"Modal: Rp {total_modal_idr:,.0f}\n"
+                f"Nilai: Rp {total_val_idr:,.0f}\n"
+                f"Total P/L: {total_status} {total_pnl_pct:+.2f}% (Rp {total_pnl_val:+,.0f})\n"
+                f"───────────────"
+            )
+
             garis_pembatas = "\n\n───────────────\n\n"
-            pesan_lengkap = header + "\n" + garis_pembatas.join(laporan_items)
-            
+            pesan_lengkap = header_total + "\n\n" + garis_pembatas.join(laporan_items)
+
             await bot.send_message(
                 chat_id=CHAT_ID, text=pesan_lengkap, parse_mode="Markdown"
             )
@@ -212,8 +231,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 tipe = "JUAL"
                 if curr['close'] <= s3:
                     target_idr = s4 * usd_idr_rate
-                    prediksi = f"⚠️ Jebol Lantai-3!\n\n"
-                    TURUN ke: Rp {target_idr:,.0f} (S4)"
+                    prediksi = f"⚠️ Jebol Lantai-3!\n\nTURUN ke: Rp {target_idr:,.0f} (S4)"
                 else:
                     target_idr = s3 * usd_idr_rate
                     prediksi = f"TURUN ke Rp {target_idr:,.0f} (S3)"
@@ -246,8 +264,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 tipe = "BELI"
                 if curr['close'] >= r3:
                     target_idr = r4 * usd_idr_rate
-                    prediksi = f"⚠️ Tembus Atap-3! \n\n"
-                    Perkiraan NAIK ke: Rp {target_idr:,.0f} (R4)"
+                    prediksi = f"⚠️ Tembus Atap-3!\n\nPerkiraan NAIK ke: Rp {target_idr:,.0f} (R4)"
                 else:
                     target_idr = r3 * usd_idr_rate
                     prediksi = f"Perkiraan NAIK ke Rp {target_idr:,.0f} (R3)"
