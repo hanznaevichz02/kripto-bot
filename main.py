@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-SPIKE_MULTIPLIER = 2.5
+SPIKE_MULTIPLIER = 2.8
 VOL_MULTIPLIER = 2.0
 
 PORTFOLIO = {
@@ -92,7 +92,7 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
                     f"Status: {status}\n"
                     f"{status_aktivitas}\n\n"
                     f"Beli: Rp {p['buy_price_idr']:,.0f}\n"
-                    f"Skrg: Rp {curr_price_idr:,.0f}\n"
+                    f"Skrg: Rp {curr_price_idr:,.0f}\n\n"
                     f"P/L: {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})"
                 )
 
@@ -111,7 +111,7 @@ async def kirim_laporan_porto(bot, exchange, usd_idr_rate):
                 f"───────────────\n"
                 f"💰 *TOTAL PORTOFOLIO*\n"
                 f"Modal: Rp {total_modal_idr:,.0f}\n"
-                f"Nilai: Rp {total_val_idr:,.0f}\n"
+                f"Nilai: Rp {total_val_idr:,.0f}\n\n"
                 f"Total P/L: {total_status} {total_pnl_pct:+.2f}% (Rp {total_pnl_val:+,.0f})\n"
                 f"───────────────"
             )
@@ -213,19 +213,19 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 tipe = "BELI"
                 if curr['close'] >= r3:
                     target_idr = r4 * usd_idr_rate
-                    prediksi = f"⚠️ Tembus Atap-3! NAIK ke: Rp {target_idr:,.0f} (R4)"
+                    prediksi = f"⚠️ Tembus Atap-3...!\nNAIK ke: Rp {target_idr:,.0f}\n(R4)"
                 else:
                     target_idr = r3 * usd_idr_rate
-                    prediksi = f"NAIK ke Rp {target_idr:,.0f} (R3)"
+                    prediksi = f"NAIK ke Rp {target_idr:,.0f}\nR3)"
                 info_atr = saran_atr_bull
             else:
                 tipe = "JUAL"
                 if curr['close'] <= s3:
                     target_idr = s4 * usd_idr_rate
-                    prediksi = f"⚠️ Jebol Lantai-3!\n\nTURUN ke: Rp {target_idr:,.0f} (S4)"
+                    prediksi = f"⚠️ Jebol Lantai-3!\n\nTURUN ke: Rp {target_idr:,.0f}\nS4)"
                 else:
                     target_idr = s3 * usd_idr_rate
-                    prediksi = f"TURUN ke Rp {target_idr:,.0f} (S3)"
+                    prediksi = f"TURUN ke Rp {target_idr:,.0f}\nS3)"
                 info_atr = saran_atr_bear
                 
             pesan_sinyal = (
@@ -255,19 +255,19 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 tipe = "BELI"
                 if curr['close'] >= r3:
                     target_idr = r4 * usd_idr_rate
-                    prediksi = f"⚠️ Tembus Atap-3!\n\nPerkiraan NAIK ke: Rp {target_idr:,.0f} (R4)"
+                    prediksi = f"⚠️ Tembus Atap-3!\n\nPerkiraan NAIK ke: Rp {target_idr:,.0f}\n(R4)"
                 else:
                     target_idr = r3 * usd_idr_rate
-                    prediksi = f"Perkiraan NAIK ke Rp {target_idr:,.0f} (R3)"
+                    prediksi = f"Perkiraan NAIK ke Rp {target_idr:,.0f}\n(R3)"
                 info_atr = saran_atr_bull
             else:
                 tipe = "JUAL"
                 if curr['close'] <= s3:
                     target_idr = s4 * usd_idr_rate
-                    prediksi = f"⚠️ Jebol Lantai-3!\nPerkiraan TURUN ke: Rp {target_idr:,.0f} (S4)"
+                    prediksi = f"⚠️ Jebol Lantai-3!\nPerkiraan TURUN ke: Rp {target_idr:,.0f}\n(S4)"
                 else:
                     target_idr = s3 * usd_idr_rate
-                    prediksi = f"Perkiraan TURUN ke Rp {target_idr:,.0f} (S3)"
+                    prediksi = f"Perkiraan TURUN ke Rp {target_idr:,.0f}\n(S3)"
                 info_atr = saran_atr_bear
 
             pesan_sinyal = (
@@ -275,7 +275,7 @@ async def cek_koin(exchange, symbol, bot, usd_idr_rate):
                 f"🔍 *AWAL SINYAL {tipe} {symbol}*\n\n"
                 f"Harga: Rp {harga_idr:,.0f}\n"
                 f"Aktivitas: {status_aktivitas}\n"
-                f"_(Spike Ok, Vol Kurang!)_\n"
+                f"Spike Ok, Vol Kurang...!\n"
                 f"{struktur_pasar}\n\n"
                 f"{prediksi}\n\n"
                 f"{info_atr}"
