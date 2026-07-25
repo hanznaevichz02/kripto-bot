@@ -315,15 +315,18 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float):
             pnl_val    = nilai - modal
             pnl_pct    = (pnl_val / modal * 100) if modal else 0
             ikon       = "🟢" if pnl_pct >= 0 else "🔴"
-            
+
             total_modal += modal
             total_nilai += nilai
-            
+
+            # Rincian per koin dibungkus block code (monospace) agar titik dua lurus
             baris.append(
                 f"{ikon} *{sym}*\n"
-                f"    Beli: {format_rp(harga_beli)}\n"
-                f"    Skrg: {format_rp(harga_kini)}\n"
-                f"    P/L : {pnl_pct:+.2f}%  ({format_rp(pnl_val)})"
+                f"```\n"
+                f"Beli : {format_rp(harga_beli)}\n"
+                f"Skrg : {format_rp(harga_kini)}\n"
+                f"P/L  : {pnl_pct:+.2f}% ({format_rp(pnl_val)})\n"
+                f"```"
             )
         except Exception as e:
             baris.append(f"⚠️ {sym} — gagal ({e})")
@@ -333,13 +336,22 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float):
     ikon_total    = "🟢" if total_pnl_pct >= 0 else "🔴"
 
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
+
+    # Ringkasan total dalam block code (monospace)
+    ringkasan_total = (
+        f"```\n"
+        f"Total Beli : {format_rp(total_modal)}\n"
+        f"Total Skrg : {format_rp(total_nilai)}\n"
+        f"Total P/L  : {total_pnl_pct:+.2f}% ({format_rp(total_pnl)})\n"
+        f"```"
+    )
+
     pesan = (
         f"📊 *PORTOFOLIO — {now_wib.strftime('%H:%M WIB')}*\n\n"
-        + "\n\n".join(baris)
-        + f"\n\n{'─'*20}\n"
-        f"  Total Beli: {format_rp(total_modal)}\n"
-        f"  Total Skrg: {format_rp(total_nilai)}\n"
-        f"{ikon_total} Total P/L : {total_pnl_pct:+.2f}% ({format_rp(total_pnl)})"
+        + "\n".join(baris)
+        + f"\n────────────────────\n"
+        + f"{ikon_total} *SUMMARY*\n"
+        + ringkasan_total
     )
     await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
