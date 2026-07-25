@@ -309,22 +309,27 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float):
         try:
             ticker = exchange.fetch_ticker(sym)
             harga_kini = ticker['last'] * usd_idr
-            modal      = p['buy_price_idr'] * p['amount']
+            harga_beli = p['buy_price_idr']
+            modal      = harga_beli * p['amount']
             nilai      = harga_kini * p['amount']
             pnl_val    = nilai - modal
-            pnl_pct    = pnl_val / modal * 100
+            pnl_pct    = (pnl_val / modal * 100) if modal else 0
             ikon       = "🟢" if pnl_pct >= 0 else "🔴"
+            
             total_modal += modal
             total_nilai += nilai
+            
             baris.append(
                 f"{ikon} *{sym}*\n"
-                f"   {format_rp(harga_kini)}  |  {pnl_pct:+.2f}%  ({format_rp(pnl_val)})"
+                f"    Beli: {format_rp(harga_beli)}\n"
+                f"    Skrg: {format_rp(harga_kini)}\n"
+                f"    P/L : {pnl_pct:+.2f}%  ({format_rp(pnl_val)})"
             )
         except Exception as e:
             baris.append(f"⚠️ {sym} — gagal ({e})")
 
     total_pnl     = total_nilai - total_modal
-    total_pnl_pct = total_pnl / total_modal * 100 if total_modal else 0
+    total_pnl_pct = (total_pnl / total_modal * 100) if total_modal else 0
     ikon_total    = "🟢" if total_pnl_pct >= 0 else "🔴"
 
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
@@ -332,7 +337,9 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float):
         f"📊 *PORTOFOLIO — {now_wib.strftime('%H:%M WIB')}*\n\n"
         + "\n\n".join(baris)
         + f"\n\n{'─'*20}\n"
-        f"{ikon_total} Total P/L: {total_pnl_pct:+.2f}% ({format_rp(total_pnl)})"
+        f"  Total Beli: {format_rp(total_modal)}\n"
+        f"  Total Skrg: {format_rp(total_nilai)}\n"
+        f"{ikon_total} Total P/L : {total_pnl_pct:+.2f}% ({format_rp(total_pnl)})"
     )
     await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
