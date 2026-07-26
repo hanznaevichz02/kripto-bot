@@ -265,19 +265,31 @@ def analisa(
 # ============================================================
 
 DESKRIPSI = {
-    'BULL_SWEEP':    ("🐋 WHALE SWEEP NAIK", "Bandar menyapu stop-loss ritel di bawah lalu memantul keras."),
-    'BEAR_SWEEP':    ("🚨 WHALE SWEEP TURUN", "Bandar menjebak buyer di atas (bull trap), lalu menarik harga turun."),
-    'BULL_OB':       ("📦 ORDER BLOCK BULLISH", "Harga kembali ke zona akumulasi whale sebelumnya."),
-    'BEAR_OB':       ("📦 ORDER BLOCK BEARISH", "Harga menyentuh zona distribusi whale sebelumnya."),
-    'AKUMULASI':     ("🤫 AKUMULASI DIAM-DIAM", "Volume meledak, spread sempit. Whale menampung barang pelan-pelan."),
-    'DISTRIBUSI':    ("⚠️ DISTRIBUSI DIAM-DIAM", "Volume meledak, spread sempit. Whale membuang barang pelan-pelan."),
-    'BULL_BREAKOUT': ("🚀 BREAKOUT VOLUME", "Dorongan modal besar memecah struktur ke atas."),
-    'BEAR_BREAKOUT': ("💥 BREAKDOWN VOLUME", "Penjualan masif menjebol struktur ke bawah."),
+    'BULL_SWEEP':    ("🐋 WHALE SWEEP NAIK", "Bandar sapu SL ritel, Harga akan LONCAT NAIK."),
+    'BEAR_SWEEP':    ("🚨 WHALE SWEEP TURUN", "Bandar jebak ritel beli, Harga akan TURUN DRASTIS."),
+    'BULL_OB':       ("📦 ORDER BLOCK BULLISH", "Harga kembali ke zona beli bandar sebelumnya."),
+    'BEAR_OB':       ("📦 ORDER BLOCK BEARISH", "Harga menyentuh zona jual bandar sebelumnya."),
+    'AKUMULASI':     ("🤫 AKUMULASI DIAM-DIAM", "Volume meledak, spread sempit. BANDAR BELI barang pelan-pelan."),
+    'DISTRIBUSI':    ("⚠️ DISTRIBUSI DIAM-DIAM", "Volume meledak, spread sempit. BANDAR JUAL barang pelan-pelan."),
+    'BULL_BREAKOUT': ("🚀 BREAKOUT VOLUME", "Modal besar JEBOL ATAP ke atas."),
+    'BEAR_BREAKOUT': ("💥 BREAKDOWN VOLUME", "Modal besar JEBOL LANTAI ke bawah."),
+}
+
+AKSI_MAP = {
+    'BULL_SWEEP':    "🟢 BELI / ENTRY SPOT (Bandar Sapu Bawah)",
+    'BEAR_SWEEP':    "🔴 JUAL / TAKE PROFIT (Awas Bull Trap)",
+    'BULL_OB':       "🟢 BELI (Antri Limit Order di Zona Demand)",
+    'BEAR_OB':       "⏳ WAIT & SEE / JUAL (Lagi di Zona Supply)",
+    'AKUMULASI':     "🟢 CICIL BELI (Bandar Lagi Nampung)",
+    'DISTRIBUSI':    "🔴 JUAL / CASH OUT (Bandar Lagi Jualan)",
+    'BULL_BREAKOUT': "🟢 BELI / FOLLOW TREND (Breakout Volume)",
+    'BEAR_BREAKOUT': "⏳ TUNGGU DI BAWAH (Breakdown Volume)",
 }
 
 def format_pesan(symbol: str, s: dict) -> str:
     tipe, harga = s['tipe'], format_rp(s['harga'])
     judul, ket = DESKRIPSI.get(tipe, (tipe, ""))
+    aksi_saran = AKSI_MAP.get(tipe, f"⚡ {s['aksi']}")
     cvd_arah = "↑ positif (dominan beli)" if s['cvd_naik'] else "↓ negatif (dominan jual)"
 
     fr = s['funding_rate']
@@ -299,18 +311,25 @@ def format_pesan(symbol: str, s: dict) -> str:
     tp = s['tp_buy'] if s['aksi'] == 'BELI' else s['tp_sell']
 
     pesan = (
-        f"*{judul} — {symbol}* {s['strength']}\n"
+        f"*{judul}*\n"
+        f"*{symbol}* {s['strength']}\n"
+        f"\n"
         f"Harga   : {harga}\n"
         f"Tren 4H : *{s['trend_4h']}*\n"
-        f"\n*Jejak Whale:*\n"
+        f"\n"
+        f"👉 *Langkah : {aksi_saran}*\n"
+        f"\n"
+        f"*Jejak Whale:*\n"
         f"  • {ket}\n"
         f"  • Volume : *{s['vol_ratio']}x* median" + (" ⚡ ULTRA!" if s.get('vol_ultra') else "") + "\n"
         f"  • Delta  : {cvd_arah}\n"
         + ob_info +
-        f"\n*Sentimen Market:*\n"
+        f"\n"
+        f"*Sentimen Market:*\n"
         f"  • Fear/Greed : {s['fear_greed']['value']} ({s['fear_greed']['label']})\n"
         f"  • Funding    : {fr_str}\n"
-        f"\n*Saran Manajemen Risiko (Swing 4H):*\n"
+        f"\n"
+        f"*Saran Manajemen Risiko (Swing 4H):*\n"
         f"  SL : {format_rp(sl)}\n"
         f"  TP : {format_rp(tp)}"
     )
