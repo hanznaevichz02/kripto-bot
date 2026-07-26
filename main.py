@@ -1,7 +1,7 @@
 """
 ========================================================
-   KRIPTO BOT — Smart Money Edition
-   Versi: 3.1 (Patched & Optimized)
+   KRIPTO BOT — Smart Money Edition + Paper Trading
+   Versi: 3.2 (Patched & Optimized)
 ========================================================
 
    Sumber Data:
@@ -28,6 +28,7 @@ import pandas as pd
 import requests
 from telegram import Bot
 from datetime import datetime, timedelta, timezone
+from paper_trader import PaperTrader
 
 # ============================================================
 # KONFIGURASI
@@ -388,6 +389,9 @@ async def main():
     fear_greed = get_fear_greed()
     now_wib    = datetime.now(timezone.utc) + timedelta(hours=7)
     is_weekend = now_wib.weekday() in [5, 6]
+    
+    # --- INISIALISASI PAPER TRADING ---
+    pt = PaperTrader()
 
     print(f"[{now_wib.strftime('%H:%M WIB')}] USD/IDR={usd_idr:,.0f} | "
           f"F&G={fear_greed['value']} ({fear_greed['label']}) | "
@@ -413,6 +417,26 @@ async def main():
 
             # Analisa
             hasil = analisa(df_1h, df_4h, usd_idr, funding_rate, fear_greed, is_weekend)
+
+            # --- 🧪 EKSEKUSI PAPER TRADING ---
+            current_close = df_1h['close'].iloc[-1]
+            harga_idr = current_close * usd_idr
+            pair_idr = f"{symbol.split('/')[0]}-IDR"
+            signal_type = hasil['tipe'] if hasil else None
+            
+            # Bot mengecek SL/TP & mencatat entry/exit
+            pt_msg = pt.process(
+                pair_name=pair_idr, 
+                signal_type=signal_type, 
+                current_price=harga_idr, 
+                current_time=now_wib.strftime('%Y-%m-%d %H:%M:%S')
+            )
+            
+            if pt_msg:
+                await bot.send_message(chat_id=CHAT_ID, text=pt_msg, parse_mode='Markdown')
+                print(f"  🧪 Notif Simulasi Terkirim: {pair_idr}")
+            # ---------------------------------
+
             if hasil:
                 pesan = format_pesan(symbol, hasil)
                 await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
