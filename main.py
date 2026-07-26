@@ -1,3 +1,25 @@
+"""
+========================================================
+   KRIPTO BOT — Smart Money Edition
+   Versi: 3.1 (Patched & Optimized)
+========================================================
+
+   Sumber Data:
+     - KuCoin (OHLCV, Volume)        via ccxt
+     - Fear & Greed Index            via alternative.me (GRATIS)
+     - Funding Rate                  via KuCoin Futures (GRATIS)
+     - Kurs USD/IDR                  via exchangerate-api.com (GRATIS)
+  
+   Konsep Utama:
+     - Liquidity Sweep  → Whale nyapu stop loss ritel
+     - Volume Absorption→ Akumulasi/distribusi diam-diam
+     - Order Block      → Zona order besar (dengan filter mitigasi)
+     - CVD (Revisi)     → Arah tekanan beli/jual dari rasio body candle
+     - Funding Rate     → Sentimen futures (jebakan long/short)
+     - Fear & Greed     → Sentimen market global
+========================================================
+"""
+
 import os
 import asyncio
 import ccxt
@@ -18,41 +40,61 @@ PORTFOLIO = {
 }
 
 ASSET_LIST = [
-    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
-    'ADA/USDT', 'LINK/USDT', 'AAVE/USDT', 'ONDO/USDT', 'DOT/USDT',
+    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT',
+    'XRP/USDT', 'LINK/USDT', 'AAVE/USDT', 'DOT/USDT',
 ]
 
-# Jam laporan portofolio (WIB)
+FUTURES_MAP = {
+    'BTC/USDT': 'XBTUSDTM',
+    'ETH/USDT': 'ETHUSDTM',
+    'SOL/USDT': 'SOLUSDTM',
+    'BNB/USDT': 'BNBUSDTM',
+    'XRP/USDT': 'XRPUSDTM',
+    'LINK/USDT': 'LINKUSDTM',
+    'AAVE/USDT': 'AAVEUSDTM',
+    'DOT/USDT':  'DOTUSDTM',
+}
+
 JAM_LAPORAN = {9, 14, 20}
 
 # ============================================================
-# HELPER
+# API HELPERS
 # ============================================================
+
 def get_usd_idr() -> float:
     try:
         r = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
-        return r.json()['rates']['IDR']
+        return float(r.json()['rates']['IDR'])
     except Exception:
         return 16_400.0
 
+def get_fear_greed() -> dict:
+    try:
+        r = requests.get("https://api.alternative.me/fng/?limit=1", timeout=5)
+        d = r.json()['data'][0]
+        return {'value': int(d['value']), 'label': d['value_classification']}
+    except Exception:
+        return {'value': 50, 'label': 'Neutral'}
 
-def hitung_rsi(series: pd.Series, period: int = 14) -> float:
-    delta = series.diff().dropna()
-    gain  = delta.clip(lower=0).rolling(period).mean()
-    loss  = (-delta.clip(upper=0)).rolling(period).mean()
-    rs    = gain / loss.replace(0, 1e-9)
-    rsi   = 100 - (100 / (1 + rs))
-    return round(float(rsi.iloc[-1]), 1)
+def get_funding_rate(exchange_futures, futures_symbol: str) -> float | None:
+    """Funding rate dengan spesifik error & timeout handling (Bug #4 Fixed)"""
+    try:
+        # Request spesifik dengan timeout 5 detik
+        info = exchange_futures.fetch_funding_rate(futures_symbol, params={'timeout': 5000})
+        return float(info.get('fundingRate', 0))
+    except ccxt.RequestTimeout:
+        print(f"  ⚠️ Timeout API Funding Rate untuk {futures_symbol}")
+        return None
+    except Exception as e:
+        print(f"  ⚠️ Error API Funding Rate {futures_symbol}: {e}")
+        return None
 
+def format_rp(nilai: float) -> str:
+    return f"Rp {nilai:,.0f}"
 
-def hitung_macd(series: pd.Series):
-    ema12  = series.ewm(span=12, adjust=False).mean()
-    ema26  = series.ewm(span=26, adjust=False).mean()
-    macd   = ema12 - ema26
-    signal = macd.ewm(span=9, adjust=False).mean()
-    hist   = macd - signal
-    return float(macd.iloc[-1]), float(signal.iloc[-1]), float(hist.iloc[-1])
-
+# ============================================================
+# KALKULASI INDIKATOR
+# ============================================================
 
 def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
     tr = pd.concat([
@@ -62,268 +104,237 @@ def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
     ], axis=1).max(axis=1)
     return float(tr.rolling(period).mean().iloc[-1])
 
+def hitung_volume_delta(df: pd.DataFrame) -> pd.Series:
+    """
+    Volume Delta murni per candle, tanpa cumsum() (Bug #2 Fixed)
+    Lebih stabil untuk bot stateless.
+    """
+    hl = (df['high'] - df['low']).replace(0, 1e-9)
+    delta = df['volume'] * ((df['close'] - df['open']) / hl)
+    return delta
 
-def format_rp(nilai: float) -> str:
-    return f"Rp {nilai:,.0f}"
+def deteksi_order_block(df: pd.DataFrame) -> dict:
+    result = {'bullish_ob': None, 'bearish_ob': None}
+    # Menggunakan median agar kebal terhadap spike outlier
+    avg_body = (df['close'] - df['open']).abs().rolling(10).median()
 
+    for i in range(len(df) - 3, len(df) - 15, -1):
+        row   = df.iloc[i]
+        nxt   = df.iloc[i + 1]
+        body  = abs(row['close'] - row['open'])
+
+        if body < avg_body.iloc[i] * 1.2:
+            continue
+
+        if row['close'] < row['open'] and nxt['close'] > row['high']:
+            if df.iloc[i+2:]['close'].min() >= row['low']: # Filter mitigasi
+                result['bullish_ob'] = {'high': row['high'], 'low': row['low']}
+                break
+
+        if row['close'] > row['open'] and nxt['close'] < row['low']:
+            if df.iloc[i+2:]['close'].max() <= row['high']: # Filter mitigasi
+                result['bearish_ob'] = {'high': row['high'], 'low': row['low']}
+                break
+
+    return result
 
 # ============================================================
-# ANALISA PER KOIN
+# ANALISA UTAMA
 # ============================================================
-def analisa(df: pd.DataFrame, usd_idr: float) -> dict | None:
-    """
-    Kembalikan dict sinyal atau None kalau tidak ada sinyal.
-    Prioritas: KONFIRMASI > SIAGA > CROSS > None
-    """
-    if len(df) < 30:
+
+def analisa(
+    df_1h: pd.DataFrame,
+    df_4h: pd.DataFrame,
+    usd_idr: float,
+    funding_rate: float | None,
+    fear_greed: dict,
+    is_weekend: bool,
+) -> dict | None:
+
+    if len(df_1h) < 50 or len(df_4h) < 50:
         return None
 
-    close = df['close']
+    # Tren 4H
+    df_4h['ema50'] = df_4h['close'].ewm(span=50, adjust=False).mean()
+    trend_4h_bull  = df_4h['close'].iloc[-1] > df_4h['ema50'].iloc[-1]
 
-    # Indikator
-    df['ema9']  = close.ewm(span=9,  adjust=False).mean()
-    df['ema21'] = close.ewm(span=21, adjust=False).mean()
-    df['ema50'] = close.ewm(span=50, adjust=False).mean()
-
-    rsi  = hitung_rsi(close)
-    macd_val, macd_sig, macd_hist = hitung_macd(close)
-    atr  = hitung_atr(df)
-
-    # Candle terakhir & sebelumnya
-    c  = df.iloc[-1]
-    p  = df.iloc[-2]
-    pp = df.iloc[-3]
+    # Candle 1H (Current & Previous)
+    c = df_1h.iloc[-1]
+    p = df_1h.iloc[-2]
 
     harga_idr = c['close'] * usd_idr
-    atr_idr   = atr * usd_idr
+    atr_idr   = hitung_atr(df_1h) * usd_idr
 
-    # Spike
-    avg_body = df['close'].sub(df['open']).abs().iloc[-6:-1].mean()
-    avg_vol  = df['volume'].iloc[-6:-1].mean()
-    body_now = abs(c['close'] - c['open'])
-    is_spike_body = body_now > avg_body * 2.0
-    is_spike_vol  = c['volume'] > avg_vol * 1.8
+    # Menggunakan MEDIAN untuk menghindari bias outlier (Bug #3 Fixed)
+    avg_vol   = df_1h['volume'].iloc[-21:-1].median()
+    avg_range = (df_1h['high'] - df_1h['low']).iloc[-21:-1].median()
 
-    # Arah candle
-    is_bullish = c['close'] > c['open']
-    is_bearish = c['close'] < c['open']
+    candle_range = c['high']  - c['low']
+    body_size    = abs(c['close'] - c['open'])
+    upper_wick   = c['high']  - max(c['close'], c['open'])
+    lower_wick   = min(c['close'], c['open']) - c['low']
+    vol_ratio    = round(c['volume'] / avg_vol, 2)
 
-    # EMA Cross
-    golden     = (p['ema9'] < p['ema21']) and (c['ema9'] > c['ema21'])
-    dead       = (p['ema9'] > p['ema21']) and (c['ema9'] < c['ema21'])
-    gap_now    = c['ema21'] - c['ema9']
-    gap_prev   = p['ema21'] - p['ema9']
-    pra_golden = (gap_now > 0) and (gap_now < gap_prev) and (c['ema9'] > p['ema9'])
-    di_atas_ema50  = c['close'] > c['ema50']
+    vol_spike = c['volume'] > avg_vol * 1.8
+    vol_ultra = c['volume'] > avg_vol * 2.8
 
-    # Pivot (1 candle sebelumnya)
-    pivot_p    = (p['high'] + p['low'] + p['close']) / 3
-    pivot_r    = p['high'] - p['low']
-    r2 = pivot_p + pivot_r
-    r3 = pivot_p + 2 * pivot_r
-    s2 = pivot_p - pivot_r
-    s3 = pivot_p - 2 * pivot_r
-    tembus_r3 = c['close'] >= r3
-    tembus_r2 = (c['close'] >= r2) and not tembus_r3
-    jebol_s3  = c['close'] <= s3
-    jebol_s2  = (c['close'] <= s2) and not jebol_s3
+    # Volume Delta Terakhir (Bug #2 Fixed)
+    deltas     = hitung_volume_delta(df_1h)
+    cvd_delta  = round(deltas.iloc[-1], 4)
+    cvd_naik   = cvd_delta > 0   # Delta positif = Beli > Jual
+    cvd_turun  = cvd_delta < 0   # Delta negatif = Jual > Beli
 
-    # Struktur HH/HL
-    win_now  = df.iloc[-14:]
-    win_prev = df.iloc[-28:-14]
-    hh_hl = (win_now['high'].max() > win_prev['high'].max()) and \
-            (win_now['low'].min()  > win_prev['low'].min())
+    # Order Block
+    ob = deteksi_order_block(df_1h)
 
-    # Filter RSI
-    rsi_oke_beli = rsi < 68
-    rsi_oke_jual = rsi > 32
+    # Konversi zona OB ke IDR sejak awal (Bug #1 Fixed)
+    dekat_bull_ob = False
+    dekat_bear_ob = False
+    
+    if ob['bullish_ob']:
+        ob['bullish_ob']['high_idr'] = ob['bullish_ob']['high'] * usd_idr
+        ob['bullish_ob']['low_idr']  = ob['bullish_ob']['low'] * usd_idr
+        ob_mid = (ob['bullish_ob']['high_idr'] + ob['bullish_ob']['low_idr']) / 2
+        dekat_bull_ob = abs(harga_idr - ob_mid) / ob_mid < 0.005
 
-    # SL & TP berbasis ATR
-    sl_buy = harga_idr - 1.5 * atr_idr
-    tp_buy = harga_idr + 2.5 * atr_idr
-    sl_sel = harga_idr + 1.5 * atr_idr
-    tp_sel = harga_idr - 2.5 * atr_idr
+    if ob['bearish_ob']:
+        ob['bearish_ob']['high_idr'] = ob['bearish_ob']['high'] * usd_idr
+        ob['bearish_ob']['low_idr']  = ob['bearish_ob']['low'] * usd_idr
+        ob_mid = (ob['bearish_ob']['high_idr'] + ob['bearish_ob']['low_idr']) / 2
+        dekat_bear_ob = abs(harga_idr - ob_mid) / ob_mid < 0.005
 
-    # Flag alasan yang selalu disertakan
-    flags = {
-        'rsi': rsi,
-        'macd_hist': macd_hist,
-        'spike_body': is_spike_body,
-        'spike_vol': is_spike_vol,
-        'tembus_r2': tembus_r2,
-        'tembus_r3': tembus_r3,
-        'jebol_s2': jebol_s2,
-        'jebol_s3': jebol_s3,
-        'golden': golden,
-        'dead': dead,
-        'pra_golden': pra_golden,
-        'di_atas_ema50': di_atas_ema50,
-        'di_bawah_ema50': not di_atas_ema50,
-        'hh_hl': hh_hl,
+    # Pola SMC
+    bull_sweep = (lower_wick > candle_range * 0.45) and vol_spike and (c['close'] >= p['low'])
+    bear_sweep = (upper_wick > candle_range * 0.45) and vol_spike and (c['close'] <= p['high'])
+
+    # Absorpsi sekarang lebih akurat karena membandingkan dengan median range
+    is_absorption = vol_spike and (body_size < avg_range * 0.4)
+
+    bull_breakout = (c['close'] > c['open']) and (body_size > avg_range * 1.2) and vol_spike
+    bear_breakout = (c['close'] < c['open']) and (body_size > avg_range * 1.2) and vol_spike
+
+    # Filter akhir pekan
+    if is_weekend and vol_ratio < 1.3:
+        return None
+
+    sl_buy, tp_buy   = harga_idr - 1.8 * atr_idr, harga_idr + 3.0 * atr_idr
+    sl_sell, tp_sell = harga_idr + 1.8 * atr_idr, harga_idr - 3.0 * atr_idr
+
+    base = {
+        'harga': harga_idr, 'vol_ratio': vol_ratio,
+        'cvd_delta': cvd_delta, 'cvd_naik': cvd_naik, 'cvd_turun': cvd_turun,
+        'trend_4h': 'BULLISH' if trend_4h_bull else 'BEARISH',
+        'funding_rate': funding_rate, 'fear_greed': fear_greed,
+        'is_weekend': is_weekend, 'vol_ultra': vol_ultra,
+        'dekat_bull_ob': dekat_bull_ob, 'dekat_bear_ob': dekat_bear_ob,
+        'ob_bull_zone': ob['bullish_ob'], 'ob_bear_zone': ob['bearish_ob'],
+        'sl_buy': sl_buy, 'tp_buy': tp_buy,
+        'sl_sell': sl_sell, 'tp_sell': tp_sell,
     }
 
-    def base(level, arah, sl, tp):
-        return {'level': level, 'arah': arah, 'harga': harga_idr,
-                'sl': sl, 'tp': tp, **flags}
-
-    # ── LEVEL 1: KONFIRMASI ────────────────────────────────────
-    if is_spike_body and is_spike_vol:
-        if is_bullish and rsi_oke_beli and macd_hist > 0:
-            return base('KONFIRMASI', 'BELI', sl_buy, tp_buy)
-        if is_bearish and rsi_oke_jual and macd_hist < 0:
-            return base('KONFIRMASI', 'JUAL', sl_sel, tp_sel)
-
-    # ── LEVEL 2: SIAGA ─────────────────────────────────────────
-    if is_spike_body or is_spike_vol:
-        if is_bullish and rsi_oke_beli and macd_hist > 0:
-            return base('SIAGA', 'BELI', sl_buy, tp_buy)
-        if is_bearish and rsi_oke_jual and macd_hist < 0:
-            return base('SIAGA', 'JUAL', sl_sel, tp_sel)
-
-    # ── LEVEL 3: CROSS ─────────────────────────────────────────
-    if golden and rsi_oke_beli:
-        return base('CROSS', 'GOLDEN CROSS', sl_buy, tp_buy)
-    if dead and rsi_oke_jual:
-        return base('CROSS', 'DEAD CROSS', sl_sel, tp_sel)
-
-    # ── LEVEL 4: PRA-GOLDEN ────────────────────────────────────
-    if pra_golden and rsi < 55:
-        return base('PRA', 'POTENSI NAIK', None, None)
+    # Penentuan Sinyal
+    if bull_sweep and trend_4h_bull and cvd_naik:
+        return {**base, 'tipe': 'BULL_SWEEP', 'aksi': 'BELI', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
+    if bear_sweep and cvd_turun:
+        return {**base, 'tipe': 'BEAR_SWEEP', 'aksi': 'JUAL', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
+    if dekat_bull_ob and trend_4h_bull and cvd_naik and vol_spike:
+        return {**base, 'tipe': 'BULL_OB', 'aksi': 'BELI', 'strength': '🔥🔥'}
+    if dekat_bear_ob and cvd_turun and vol_spike:
+        return {**base, 'tipe': 'BEAR_OB', 'aksi': 'JUAL', 'strength': '🔥🔥'}
+    if is_absorption:
+        if (c['close'] > c['open']) and trend_4h_bull and cvd_naik:
+            return {**base, 'tipe': 'AKUMULASI', 'aksi': 'BELI', 'strength': '🔥'}
+        if (c['close'] < c['open']) and cvd_turun:
+            return {**base, 'tipe': 'DISTRIBUSI', 'aksi': 'JUAL', 'strength': '🔥'}
+    if bull_breakout and trend_4h_bull and cvd_naik:
+        return {**base, 'tipe': 'BULL_BREAKOUT', 'aksi': 'BELI', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
+    if bear_breakout and cvd_turun:
+        return {**base, 'tipe': 'BEAR_BREAKOUT', 'aksi': 'JUAL', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
 
     return None
-
 
 # ============================================================
 # FORMAT PESAN TELEGRAM
 # ============================================================
-def format_alasan(s: dict) -> str:
-    """Susun kalimat alasan sinyal dari flag yang dikirim analisa()."""
-    alasan = []
 
-    # Candle & volume
-    if s.get('spike_body') and s.get('spike_vol'):
-        alasan.append("📊 Spike candle + volume meledak")
-    elif s.get('spike_body'):
-        alasan.append("📊 Spike candle besar (volume tipis)")
-    elif s.get('spike_vol'):
-        alasan.append("📊 Volume meledak (body normal)")
+DESKRIPSI = {
+    'BULL_SWEEP':    ("🐋 WHALE SWEEP NAIK", "Bandar menyapu stop-loss ritel di bawah lalu memantul keras."),
+    'BEAR_SWEEP':    ("🚨 WHALE SWEEP TURUN", "Bandar menjebak buyer di atas (bull trap), lalu menarik harga turun."),
+    'BULL_OB':       ("📦 ORDER BLOCK BULLISH", "Harga kembali ke zona akumulasi whale sebelumnya."),
+    'BEAR_OB':       ("📦 ORDER BLOCK BEARISH", "Harga menyentuh zona distribusi whale sebelumnya."),
+    'AKUMULASI':     ("🤫 AKUMULASI DIAM-DIAM", "Volume meledak, spread sempit. Whale menampung barang pelan-pelan."),
+    'DISTRIBUSI':    ("⚠️ DISTRIBUSI DIAM-DIAM", "Volume meledak, spread sempit. Whale membuang barang pelan-pelan."),
+    'BULL_BREAKOUT': ("🚀 BREAKOUT VOLUME", "Dorongan modal besar memecah struktur ke atas."),
+    'BEAR_BREAKOUT': ("💥 BREAKDOWN VOLUME", "Penjualan masif menjebol struktur ke bawah."),
+}
 
-    # Pivot breakout/breakdown
-    if s.get('tembus_r2'):
-        alasan.append("🚀 Harga tembus R2")
-    if s.get('tembus_r3'):
-        alasan.append("🚀 Harga tembus R3!")
-    if s.get('jebol_s2'):
-        alasan.append("💥 Harga jebol S2")
-    if s.get('jebol_s3'):
-        alasan.append("💥 Harga jebol S3!")
+def format_pesan(symbol: str, s: dict) -> str:
+    tipe, harga = s['tipe'], format_rp(s['harga'])
+    judul, ket = DESKRIPSI.get(tipe, (tipe, ""))
+    cvd_arah = "↑ positif (dominan beli)" if s['cvd_naik'] else "↓ negatif (dominan jual)"
 
-    # EMA
-    if s.get('golden'):
-        alasan.append("📈 EMA9 memotong EMA21 ke atas (Golden Cross)")
-    if s.get('dead'):
-        alasan.append("📉 EMA9 memotong EMA21 ke bawah (Dead Cross)")
-    if s.get('pra_golden'):
-        alasan.append("🪝 EMA9 mendekati EMA21 dari bawah")
-    if s.get('di_atas_ema50'):
-        alasan.append("✅ Harga di atas EMA50 (trend positif)")
-    elif s.get('di_bawah_ema50'):
-        alasan.append("⚠️ Harga di bawah EMA50 (trend negatif)")
+    fr = s['funding_rate']
+    fr_str = "N/A"
+    if fr is not None:
+        if fr > 0.0005: fr_str = f"+{fr*100:.4f}% ⚠️ (rawan dump)"
+        elif fr < -0.0005: fr_str = f"{fr*100:.4f}% ⚡ (potensi squeeze)"
+        else: fr_str = f"{fr*100:+.4f}% (normal)"
 
-    # RSI
-    rsi = s.get('rsi', 50)
-    if rsi <= 30:
-        alasan.append(f"📉 RSI {rsi} — oversold ekstrem")
-    elif rsi <= 40:
-        alasan.append(f"📉 RSI {rsi} — area oversold")
-    elif rsi >= 70:
-        alasan.append(f"📈 RSI {rsi} — overbought, hati-hati")
-    elif rsi >= 60:
-        alasan.append(f"📈 RSI {rsi} — momentum kuat")
-    else:
-        alasan.append(f"➡️ RSI {rsi} — netral")
+    ob_info = ""
+    # Memanggil nilai konversi IDR yang sudah dihitung di fungsi analisa()
+    if s.get('dekat_bull_ob') and s.get('ob_bull_zone'):
+        z = s['ob_bull_zone']
+        ob_info = f"\n*Area Order Block:*\n  {format_rp(z['low_idr'])} — {format_rp(z['high_idr'])}\n"
+    if s.get('dekat_bear_ob') and s.get('ob_bear_zone'):
+        z = s['ob_bear_zone']
+        ob_info = f"\n*Area Order Block:*\n  {format_rp(z['low_idr'])} — {format_rp(z['high_idr'])}\n"
 
-    # MACD histogram
-    hist = s.get('macd_hist', 0)
-    if hist > 0:
-        alasan.append(f"📈 MACD histogram hijau (+{hist:.2f})")
-    else:
-        alasan.append(f"📉 MACD histogram merah ({hist:.2f})")
+    sl = s['sl_buy'] if s['aksi'] == 'BELI' else s['sl_sell']
+    tp = s['tp_buy'] if s['aksi'] == 'BELI' else s['tp_sell']
 
-    # Struktur HH/HL
-    if s.get('hh_hl'):
-        alasan.append("📈 Struktur HH+HL (tren naik)")
-
-    return "\n".join(f"  • {a}" for a in alasan)
-
-
-def format_sinyal(symbol: str, s: dict) -> str:
-    level = s['level']
-    arah  = s['arah']
-    harga = format_rp(s['harga'])
-
-    # Header
-    if level == 'KONFIRMASI' and 'BELI' in arah:
-        header = f"✅ KONFIRMASI BELI — {symbol}"
-    elif level == 'KONFIRMASI' and 'JUAL' in arah:
-        header = f"🚨 KONFIRMASI JUAL — {symbol}"
-    elif level == 'SIAGA' and 'BELI' in arah:
-        header = f"⚡ SIAGA BELI — {symbol}"
-    elif level == 'SIAGA' and 'JUAL' in arah:
-        header = f"⚠️ SIAGA JUAL — {symbol}"
-    elif level == 'CROSS':
-        ikon = "🔔" if 'GOLDEN' in arah else "🔕"
-        header = f"{ikon} {arah} — {symbol}"
-    else:
-        header = f"🪝 PRA-GOLDEN — {symbol}"
-
-    alasan_str = format_alasan(s)
-
-    lines = [
-        f"*{header}*",
-        f"Harga : {harga}",
-        "",
-        "*Alasan:*",
-        alasan_str,
-    ]
-
-    if s.get('sl') and s.get('tp'):
-        lines += [
-            "",
-            f"SL : {format_rp(s['sl'])}",
-            f"TP : {format_rp(s['tp'])}",
-        ]
-
-    return "\n".join(lines)
+    pesan = (
+        f"*{judul} — {symbol}* {s['strength']}\n"
+        f"Harga   : {harga}\n"
+        f"Tren 4H : *{s['trend_4h']}*\n"
+        f"\n*Jejak Whale:*\n"
+        f"  • {ket}\n"
+        f"  • Volume : *{s['vol_ratio']}x* median" + (" ⚡ ULTRA!" if s.get('vol_ultra') else "") + "\n"
+        f"  • Delta  : {cvd_arah}\n"
+        + ob_info +
+        f"\n*Sentimen Market:*\n"
+        f"  • Fear/Greed : {s['fear_greed']['value']} ({s['fear_greed']['label']})\n"
+        f"  • Funding    : {fr_str}\n"
+        f"\n*Saran Manajemen Risiko:*\n"
+        f"  SL : {format_rp(sl)}\n"
+        f"  TP : {format_rp(tp)}"
+    )
+    return pesan
 
 
 # ============================================================
 # LAPORAN PORTOFOLIO
 # ============================================================
-async def kirim_laporan(bot: Bot, exchange, usd_idr: float):
+
+async def kirim_laporan(bot: Bot, exchange, usd_idr: float, fear_greed: dict):
     total_modal = 0.0
     total_nilai = 0.0
     baris = []
 
     for sym, p in PORTFOLIO.items():
         try:
-            ticker = exchange.fetch_ticker(sym)
+            ticker     = exchange.fetch_ticker(sym)
             harga_kini = ticker['last'] * usd_idr
-            harga_beli = p['buy_price_idr']
-            modal      = harga_beli * p['amount']
+            modal      = p['buy_price_idr'] * p['amount']
             nilai      = harga_kini * p['amount']
             pnl_val    = nilai - modal
-            pnl_pct    = (pnl_val / modal * 100) if modal else 0
+            pnl_pct    = pnl_val / modal * 100
             ikon       = "🟢" if pnl_pct >= 0 else "🔴"
-
             total_modal += modal
             total_nilai += nilai
-
-            # Rincian per koin dibungkus block code (monospace) agar titik dua lurus
             baris.append(
                 f"{ikon} *{sym}*\n"
                 f"```\n"
-                f"Beli : {format_rp(harga_beli)}\n"
+                f"Beli : {format_rp(p['buy_price_idr'])}\n"
                 f"Skrg : {format_rp(harga_kini)}\n"
                 f"P/L  : {pnl_pct:+.2f}% ({format_rp(pnl_val)})\n"
                 f"```"
@@ -332,34 +343,32 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float):
             baris.append(f"⚠️ {sym} — gagal ({e})")
 
     total_pnl     = total_nilai - total_modal
-    total_pnl_pct = (total_pnl / total_modal * 100) if total_modal else 0
+    total_pnl_pct = total_pnl / total_modal * 100 if total_modal else 0
     ikon_total    = "🟢" if total_pnl_pct >= 0 else "🔴"
+    now_wib       = datetime.now(timezone.utc) + timedelta(hours=7)
+    fg_str        = f"{fear_greed['value']} — {fear_greed['label']}"
 
-    now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
-
-    # Ringkasan total dalam block code (monospace)
-    ringkasan_total = (
+    pesan = (
+        f"📊 *PORTOFOLIO — {now_wib.strftime('%d %b %Y, %H:%M WIB')}*\n\n"
+        + "\n".join(baris)
+        + f"\n────────────────────\n"
+        f"{ikon_total} *SUMMARY*\n"
         f"```\n"
         f"Total Beli : {format_rp(total_modal)}\n"
         f"Total Skrg : {format_rp(total_nilai)}\n"
         f"Total P/L  : {total_pnl_pct:+.2f}% ({format_rp(total_pnl)})\n"
-        f"```"
-    )
-
-    pesan = (
-        f"📊 *PORTOFOLIO — {now_wib.strftime('%H:%M WIB')}*\n\n"
-        + "\n".join(baris)
-        + f"\n────────────────────\n"
-        + f"{ikon_total} *SUMMARY*\n"
-        + ringkasan_total
+        f"```\n"
+        f"😨 Fear & Greed : *{fg_str}*"
     )
     await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
 
 # ============================================================
-# MAIN LOOP
+# MAIN
 # ============================================================
+
 async def main():
+    # Exchange spot
     exchange = ccxt.kucoin({
         'enableRateLimit': True,
         'options': {'defaultType': 'spot'},
@@ -367,30 +376,58 @@ async def main():
     })
     exchange.load_markets()
 
-    bot      = Bot(token=TOKEN)
-    usd_idr  = get_usd_idr()
-    now_wib  = datetime.now(timezone.utc) + timedelta(hours=7)
+    # Exchange futures (read-only untuk funding rate)
+    exchange_futures = ccxt.kucoinfutures({
+        'enableRateLimit': True,
+        'timeout': 30_000,
+    })
 
-    # Scan semua aset
+    bot        = Bot(token=TOKEN)
+    usd_idr    = get_usd_idr()
+    fear_greed = get_fear_greed()
+    now_wib    = datetime.now(timezone.utc) + timedelta(hours=7)
+    is_weekend = now_wib.weekday() in [5, 6]
+
+    print(f"[{now_wib.strftime('%H:%M WIB')}] USD/IDR={usd_idr:,.0f} | "
+          f"F&G={fear_greed['value']} ({fear_greed['label']}) | "
+          f"Weekend={is_weekend}")
+
     for symbol in ASSET_LIST:
         try:
-            bars = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=60)
-            df   = pd.DataFrame(bars, columns=['timestamp','open','high','low','close','volume'])
-            df[['open','high','low','close','volume']] = df[['open','high','low','close','volume']].astype(float)
+            # Data OHLCV
+            bars_1h = exchange.fetch_ohlcv(symbol, '1h', limit=60)
+            bars_4h = exchange.fetch_ohlcv(symbol, '4h', limit=60)
 
-            hasil = analisa(df, usd_idr)
+            df_1h = pd.DataFrame(
+                bars_1h, columns=['timestamp','open','high','low','close','volume']
+            ).astype({'open':float,'high':float,'low':float,'close':float,'volume':float})
+
+            df_4h = pd.DataFrame(
+                bars_4h, columns=['timestamp','open','high','low','close','volume']
+            ).astype({'open':float,'high':float,'low':float,'close':float,'volume':float})
+
+            # Funding rate
+            futures_sym  = FUTURES_MAP.get(symbol)
+            funding_rate = get_funding_rate(exchange_futures, futures_sym) if futures_sym else None
+
+            # Analisa
+            hasil = analisa(df_1h, df_4h, usd_idr, funding_rate, fear_greed, is_weekend)
             if hasil:
-                pesan = format_sinyal(symbol, hasil)
+                pesan = format_pesan(symbol, hasil)
                 await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+                print(f"  ✅ Sinyal terkirim: {symbol} — {hasil['tipe']}")
+            else:
+                print(f"  — {symbol}: tidak ada sinyal")
 
         except Exception as e:
-            print(f"Error {symbol}: {e}")
+            print(f"  ❌ Error {symbol}: {e}")
 
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(2)
 
     # Laporan portofolio 3× sehari
     if now_wib.hour in JAM_LAPORAN and now_wib.minute < 30:
-        await kirim_laporan(bot, exchange, usd_idr)
+        await kirim_laporan(bot, exchange, usd_idr, fear_greed)
+        print("  📊 Laporan portofolio terkirim")
 
 
 if __name__ == '__main__':
