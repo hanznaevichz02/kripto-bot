@@ -29,3 +29,11 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python main.py
+
+      - name: Save Paper Trading State
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action Bot"
+          git add paper_trading.json || true
+          git commit -m "Auto-update status paper trading [skip ci]" || true
+          git push || true
