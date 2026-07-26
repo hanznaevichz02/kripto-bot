@@ -30,6 +30,13 @@ jobs:
         run: |
           python main.py
 
+      - name: Run SMC Paper Trader
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python paper_trader_smc.py
+
       - name: Run Technical Paper Trader
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
