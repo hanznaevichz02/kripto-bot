@@ -1,7 +1,7 @@
 """
 ========================================================
    KRIPTO BOT — Technical Pure Edition (Paper Trading)
-   Strategi: Golden Cross (EMA 9/21) + Volume Spike + ATR
+   Strategi: Golden Cross (EMA 9/21) + Swing 4H SL/TP
    Target  : Khusus ETH-IDR (Fair Head-to-Head vs SMC)
 ========================================================
 """
@@ -24,9 +24,9 @@ INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_tech.json"
 TARGET_SYMBOL       = "ETH/USDT"
 TARGET_PAIR_NAME    = "ETH-IDR"
-FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 dipotong saat sell
+FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68
 
-# --- MANAJEMEN STATE PAPER TRADING (FAIR HEAD-TO-HEAD) ---
+# --- MANAJEMEN STATE PAPER TRADING ---
 def load_state():
     if os.path.exists(STATE_FILE):
         try:
@@ -51,7 +51,15 @@ def get_usd_to_idr():
         response = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
         return response.json()['rates']['IDR']
     except Exception:
-        return 18000 
+        return 16400.0
+
+def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
+    """
+    Mencari Swing Low & Swing High dari N candle 4H terakhir.
+    """
+    swing_low = df_4h['low'].iloc[-window-1:-1].min()
+    swing_high = df_4h['high'].iloc[-window-1:-1].max()
+    return {'swing_high': swing_high, 'swing_low': swing_low}
 
 # --- KELAS PAPER TRADER TEKNIKAL ---
 class TechnicalPaperTrader:
@@ -59,7 +67,7 @@ class TechnicalPaperTrader:
         self.state = load_state()
 
     def process(self, signal_type, current_price, current_time, sl_price, tp_price):
-        # 1. Cek Posisi Aktif (Exit Logic: TP / SL)
+        # 1. Cek Posisi Aktif (Exit Logic: TP / SL / Death Cross)
         pos = self.state.get("active_position")
         if pos:
             entry_p = pos["entry_price_idr"]
@@ -67,12 +75,18 @@ class TechnicalPaperTrader:
             sl      = pos["sl"]
             tp      = pos["tp"]
             
-            is_win  = current_price >= tp
-            is_loss = current_price <= sl
+            is_win        = current_price >= tp
+            is_loss       = current_price <= sl
+            is_death_exit = signal_type == "JUAL"  # Death Cross Emergency Exit
             
-            if is_win or is_loss:
-                exit_reason = "TAKE PROFIT 🎯" if is_win else "STOP LOSS 🛑"
-                
+            if is_win or is_loss or is_death_exit:
+                if is_win:
+                    exit_reason = "TAKE PROFIT (SWING 4H) 🎯"
+                elif is_loss:
+                    exit_reason = "STOP LOSS (SWING 4H) 🛑"
+                else:
+                    exit_reason = "DEATH CROSS EXIT ⚠️"
+
                 gross_final_val = current_price * amount
                 fee_tax_amount  = gross_final_val * FEE_TAX_RATE
                 net_final_val   = gross_final_val - fee_tax_amount
@@ -80,15 +94,15 @@ class TechnicalPaperTrader:
                 modal_val       = entry_p * amount
                 pnl_val         = net_final_val - modal_val
                 pnl_pct         = (pnl_val / modal_val) * 100
-                status          = "WIN" if is_win else "LOSS"
+                status          = "WIN" if pnl_val > 0 else "LOSS"
                 
-                # Update kas (sisa kas + nilai bersih setelah dipotong pajak)
+                # Update kas
                 self.state["cash_idr"] += net_final_val
                 
                 # Rekap history
                 trade_record = {
                     "pair": TARGET_PAIR_NAME,
-                    "strategy": "TECHNICAL (Golden Cross)",
+                    "strategy": "TECHNICAL (Golden Cross + Swing 4H)",
                     "entry_price": entry_p,
                     "exit_price": current_price,
                     "pnl_pct": round(pnl_pct, 2),
@@ -111,14 +125,14 @@ class TechnicalPaperTrader:
                 self.state["active_position"] = None
                 save_state(self.state)
                 
-                # Susun pesan notifikasi rekap total
+                # Susun pesan notifikasi
                 stats    = self.state["stats"]
                 win_rate = (stats["wins"] / stats["total_trades"]) * 100 if stats["total_trades"] > 0 else 0
                 
                 msg = (
                     f"🧪 *[PAPER TRADING - TEKNIKAL EXIT]* {TARGET_PAIR_NAME}\n"
                     f"──────────────────────────────\n"
-                    f"Status    : {exit_reason} ({status})\n"
+                    f"Alasan    : {exit_reason}\n"
                     f"Harga In  : Rp {entry_p:,.0f}\n"
                     f"Harga Out : Rp {current_price:,.0f}\n"
                     f"P/L       : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n\n"
@@ -132,10 +146,10 @@ class TechnicalPaperTrader:
                 return msg
             return None
 
-        # 2. Jika Tidak Ada Posisi Aktif, Cari Sinyal Masuk (Entry Logic)
+        # 2. Jika Tidak Ada Posisi Aktif, Cari Sinyal Masuk (Golden Cross)
         if not pos and signal_type == "BELI":
             available_cash = self.state["cash_idr"]
-            if available_cash >= 100_000: # Batas minimal alokasi
+            if available_cash >= 100_000:  # Batas minimal alokasi
                 amount = available_cash / current_price
                 self.state["active_position"] = {
                     "entry_price_idr": current_price,
@@ -145,25 +159,24 @@ class TechnicalPaperTrader:
                     "type": "BELI",
                     "entry_time": current_time
                 }
-                # Kurangi kas karena uangnya diputar ke posisi beli
-                self.state["cash_idr"] = 0.0 
+                self.state["cash_idr"] = 0.0  # Diputar ke posisi beli
                 save_state(self.state)
                 
                 msg = (
                     f"🧪 *[PAPER TRADING - TEKNIKAL ENTRY]* {TARGET_PAIR_NAME}\n"
                     f"──────────────────────────────\n"
-                    f"Strategi  : Golden Cross EMA 9/21 + Vol Spike\n"
-                    f"Modal In  : Rp {available_cash:,.0f} (All-in)\n"
+                    f"Strategi  : Golden Cross + Swing 4H Structure\n"
+                    f"Modal In  : Rp {available_cash:,.0f} (All-in Spot)\n"
                     f"Harga In  : Rp {current_price:,.0f}\n"
-                    f"Target TP : Rp {tp_price:,.0f} (+3 ATR)\n"
-                    f"Batas SL  : Rp {sl_price:,.0f} (-1.5 ATR)"
+                    f"Target TP : Rp {tp_price:,.0f} (Swing High 4H)\n"
+                    f"Batas SL  : Rp {sl_price:,.0f} (Swing Low 4H)"
                 )
                 return msg
         return None
 
 # --- MAIN EXECUTOR ---
 async def main():
-    print("DEBUG: Menjalankan Paper Trader Teknikal (ETH-IDR)...")
+    print("DEBUG: Menjalankan Paper Trader Teknikal Swing (ETH-IDR Spot)...")
     exchange = ccxt.kucoin({
         'enableRateLimit': True,
         'options': {'defaultType': 'spot'},
@@ -176,60 +189,78 @@ async def main():
         print(f"Gagal memuat market: {e}")
         return
 
-    bot         = Bot(token=TOKEN)
-    usd_idr    = get_usd_to_idr()
-    now_wib    = datetime.now(timezone.utc) + timedelta(hours=7)
+    bot     = Bot(token=TOKEN)
+    usd_idr = get_usd_to_idr()
+    now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
     
     pt_tech = TechnicalPaperTrader()
     
     try:
-        bars = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='1h', limit=50)
-        if len(bars) < 40:
+        # Pull Data Multi-Timeframe: 1H (Trigger) & 4H (Structure)
+        bars_1h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='1h', limit=50)
+        bars_4h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='4h', limit=30)
+        
+        if len(bars_1h) < 40 or len(bars_4h) < 15:
             return
             
-        df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        # 1. Indikator EMA & ATR
-        df['ema9']  = df['close'].ewm(span=9, adjust=False).mean()
-        df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
+        # 1. Indikator EMA & ATR di 1H
+        df_1h['ema9']  = df_1h['close'].ewm(span=9, adjust=False).mean()
+        df_1h['ema21'] = df_1h['close'].ewm(span=21, adjust=False).mean()
         
-        tr0 = df['high'] - df['low']
-        tr1 = (df['high'] - df['close'].shift(1)).abs()
-        tr2 = (df['low']  - df['close'].shift(1)).abs()
-        df['tr']  = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1)
-        df['atr'] = df['tr'].rolling(window=14).mean()
+        tr0 = df_1h['high'] - df_1h['low']
+        tr1 = (df_1h['high'] - df_1h['close'].shift(1)).abs()
+        tr2 = (df_1h['low']  - df_1h['close'].shift(1)).abs()
+        df_1h['tr']  = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1)
+        df_1h['atr'] = df_1h['tr'].rolling(window=14).mean()
         
-        df['avg_vol'] = df['volume'].rolling(window=3).mean().shift(1)
+        df_1h['avg_vol'] = df_1h['volume'].rolling(window=3).mean().shift(1)
         
         curr_idx = -2
         prev_idx = -3
-        curr = df.iloc[curr_idx]
-        prev = df.iloc[prev_idx]
+        curr = df_1h.iloc[curr_idx]
         
-        is_spike_vol = curr['volume'] > (df['avg_vol'].iloc[curr_idx] * VOL_MULTIPLIER)
+        is_spike_vol = curr['volume'] > (df_1h['avg_vol'].iloc[curr_idx] * VOL_MULTIPLIER)
         
         harga_idr = curr['close'] * usd_idr
         atr_idr   = curr['atr'] * usd_idr
         
-        sl_bullish = harga_idr - (1.5 * atr_idr)
-        tp_bullish = harga_idr + (3.0 * atr_idr)  # Diubah ke 3.0 ATR
+        # 2. Kalkulasi Swing High & Swing Low 4H
+        swing = deteksi_swing_4h(df_4h, window=7)
+        swing_high_idr = swing['swing_high'] * usd_idr
+        swing_low_idr  = swing['swing_low'] * usd_idr
         
-        # 2. Kondisi Golden Cross & Sudut Kemiringan EMA
-        slope_ema9   = abs(df['ema9'].iloc[curr_idx] - df['ema9'].iloc[prev_idx]) / df['ema9'].iloc[prev_idx] * 100
+        sl_bullish = swing_low_idr - (0.5 * atr_idr)
+        tp_bullish = swing_high_idr
+        
+        # Filter Pengaman / Emergency Fallback
+        if tp_bullish <= harga_idr * 1.015:
+            tp_bullish = harga_idr + (3.5 * atr_idr)
+            
+        if sl_bullish >= harga_idr * 0.985:
+            sl_bullish = harga_idr - (1.8 * atr_idr)
+        
+        # 3. Condition Golden Cross & Death Cross
+        slope_ema9     = abs(df_1h['ema9'].iloc[curr_idx] - df_1h['ema9'].iloc[prev_idx]) / df_1h['ema9'].iloc[prev_idx] * 100
         is_sudut_tajam = slope_ema9 > 0.25 
         
-        ema9_now  = df['ema9'].iloc[curr_idx]
-        ema9_prev = df['ema9'].iloc[prev_idx]
-        ema21_now = df['ema21'].iloc[curr_idx]
-        ema21_prev= df['ema21'].iloc[prev_idx]
+        ema9_now   = df_1h['ema9'].iloc[curr_idx]
+        ema9_prev  = df_1h['ema9'].iloc[prev_idx]
+        ema21_now  = df_1h['ema21'].iloc[curr_idx]
+        ema21_prev = df_1h['ema21'].iloc[prev_idx]
         
         golden = (ema9_prev < ema21_prev) and (ema9_now > ema21_now)
+        death  = (ema9_prev > ema21_prev) and (ema9_now < ema21_now)
         
         signal_type = None
         if golden and is_spike_vol and is_sudut_tajam:
             signal_type = "BELI"
+        elif death:
+            signal_type = "JUAL"  # Digunakan sebagai sinyal exit darurat jika memegang posisi
             
-        # 3. Proses Evaluasi Paper Trading (Keluar/Masuk Posisi)
+        # 4. Evaluasi Paper Trading
         pt_msg = pt_tech.process(
             signal_type=signal_type,
             current_price=harga_idr,
