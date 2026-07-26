@@ -324,7 +324,27 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float, fear_greed: dict):
     total_pnl_pct = total_pnl / total_modal * 100 if total_modal else 0
     ikon_total    = "🟢" if total_pnl_pct >= 0 else "🔴"
     now_wib       = datetime.now(timezone.utc) + timedelta(hours=7)
-    fg_str        = f"{fear_greed['value']} — {fear_greed['label']}"
+    
+    # Terjemahan label Fear & Greed ke bahasa Indonesia
+    fng_translation = {
+        "Extreme Fear": "Ketakutan Ekstrem",
+        "Fear": "Takut",
+        "Neutral": "Netral",
+        "Greed": "Serakah",
+        "Extreme Greed": "Keserakahan Ekstrem"
+    }
+    label_indo = fng_translation.get(fear_greed['label'], fear_greed['label'])
+    fg_str = f"{fear_greed['value']} — {label_indo}"
+
+    # Logika otomatis Ritel vs Bandar berdasarkan kondisi pasar
+    behavior_map = {
+        "Extreme Fear": "Ritel Panik JUAL, Bandar BELI",
+        "Fear": "Ritel cicil JUAL, Bandar cicil BELI",
+        "Neutral": "Ritel WAIT & SEE, Bandar Konsolidasi",
+        "Greed": "Ritel cicil BELI, Bandar cicil JUAL",
+        "Extreme Greed": "Ritel FOMO BELI, Bandar JUAL (TP)"
+    }
+    analisis_pasar = behavior_map.get(fear_greed['label'], "Ritel & Bandar Bergerak Dinamis")
 
     pesan = (
         f"📊 *PORTOFOLIO — {now_wib.strftime('%d %b %Y, %H:%M WIB')}*\n\n"
@@ -336,7 +356,9 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float, fear_greed: dict):
         + f"Total Skrg : {format_rp(total_nilai)}\n"
         + f"Total P/L  : {total_pnl_pct:+.2f}% ({format_rp(total_pnl)})\n"
         + f"```\n"
-        + f"😨 Fear & Greed : *{fg_str}*"
+        + f"──────────────────────────────\n"
+        + f"Kondisi Pasar: *{fg_str}*\n"
+        + f"└ _{analisis_pasar}_"
     )
     await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
