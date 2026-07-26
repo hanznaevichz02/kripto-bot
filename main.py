@@ -1,7 +1,7 @@
 """
 ========================================================
-   KRIPTO BOT — Smart Money Edition + Paper Trading
-   Versi: 3.2 (Patched & Optimized)
+   KRIPTO BOT — Smart Money Edition + Focused Paper Trading
+   Versi: 3.3 (Agresif Sampling & Dedicated ETH-IDR)
 ========================================================
 
    Sumber Data:
@@ -79,9 +79,7 @@ def get_fear_greed() -> dict:
         return {'value': 50, 'label': 'Neutral'}
 
 def get_funding_rate(exchange_futures, futures_symbol: str) -> float | None:
-    """Funding rate dengan spesifik error & timeout handling (Bug #4 Fixed)"""
     try:
-        # Request spesifik dengan timeout 5 detik
         info = exchange_futures.fetch_funding_rate(futures_symbol, params={'timeout': 5000})
         return float(info.get('fundingRate', 0))
     except ccxt.RequestTimeout:
@@ -107,17 +105,12 @@ def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
     return float(tr.rolling(period).mean().iloc[-1])
 
 def hitung_volume_delta(df: pd.DataFrame) -> pd.Series:
-    """
-    Volume Delta murni per candle, tanpa cumsum() (Bug #2 Fixed)
-    Lebih stabil untuk bot stateless.
-    """
     hl = (df['high'] - df['low']).replace(0, 1e-9)
     delta = df['volume'] * ((df['close'] - df['open']) / hl)
     return delta
 
 def deteksi_order_block(df: pd.DataFrame) -> dict:
     result = {'bullish_ob': None, 'bearish_ob': None}
-    # Menggunakan median agar kebal terhadap spike outlier
     avg_body = (df['close'] - df['open']).abs().rolling(10).median()
 
     for i in range(len(df) - 3, len(df) - 15, -1):
@@ -129,19 +122,19 @@ def deteksi_order_block(df: pd.DataFrame) -> dict:
             continue
 
         if row['close'] < row['open'] and nxt['close'] > row['high']:
-            if df.iloc[i+2:]['close'].min() >= row['low']: # Filter mitigasi
+            if df.iloc[i+2:]['close'].min() >= row['low']:
                 result['bullish_ob'] = {'high': row['high'], 'low': row['low']}
                 break
 
         if row['close'] > row['open'] and nxt['close'] < row['low']:
-            if df.iloc[i+2:]['close'].max() <= row['high']: # Filter mitigasi
+            if df.iloc[i+2:]['close'].max() <= row['high']:
                 result['bearish_ob'] = {'high': row['high'], 'low': row['low']}
                 break
 
     return result
 
 # ============================================================
-# ANALISA UTAMA
+# ANALISA UTAMA (VERSI AGRESIF / FLEKSIBEL UNTUK SAMPLING)
 # ============================================================
 
 def analisa(
@@ -156,18 +149,16 @@ def analisa(
     if len(df_1h) < 50 or len(df_4h) < 50:
         return None
 
-    # Tren 4H
+    # Tren 4H (Hanya sebagai info tambahan, tidak memblokir sinyal)
     df_4h['ema50'] = df_4h['close'].ewm(span=50, adjust=False).mean()
     trend_4h_bull  = df_4h['close'].iloc[-1] > df_4h['ema50'].iloc[-1]
 
-    # Candle 1H (Current & Previous)
     c = df_1h.iloc[-1]
     p = df_1h.iloc[-2]
 
     harga_idr = c['close'] * usd_idr
     atr_idr   = hitung_atr(df_1h) * usd_idr
 
-    # Menggunakan MEDIAN untuk menghindari bias outlier (Bug #3 Fixed)
     avg_vol   = df_1h['volume'].iloc[-21:-1].median()
     avg_range = (df_1h['high'] - df_1h['low']).iloc[-21:-1].median()
 
@@ -177,19 +168,16 @@ def analisa(
     lower_wick   = min(c['close'], c['open']) - c['low']
     vol_ratio    = round(c['volume'] / avg_vol, 2)
 
-    vol_spike = c['volume'] > avg_vol * 1.8
-    vol_ultra = c['volume'] > avg_vol * 2.8
+    vol_spike = c['volume'] > avg_vol * 1.5  # Dilonggarkan dari 1.8x jadi 1.5x
+    vol_ultra = c['volume'] > abs(avg_vol * 2.5)
 
-    # Volume Delta Terakhir (Bug #2 Fixed)
     deltas     = hitung_volume_delta(df_1h)
     cvd_delta  = round(deltas.iloc[-1], 4)
-    cvd_naik   = cvd_delta > 0   # Delta positif = Beli > Jual
-    cvd_turun  = cvd_delta < 0   # Delta negatif = Jual > Beli
+    cvd_naik   = cvd_delta > 0
+    cvd_turun  = cvd_delta < 0
 
-    # Order Block
     ob = deteksi_order_block(df_1h)
 
-    # Konversi zona OB ke IDR sejak awal (Bug #1 Fixed)
     dekat_bull_ob = False
     dekat_bear_ob = False
     
@@ -197,27 +185,22 @@ def analisa(
         ob['bullish_ob']['high_idr'] = ob['bullish_ob']['high'] * usd_idr
         ob['bullish_ob']['low_idr']  = ob['bullish_ob']['low'] * usd_idr
         ob_mid = (ob['bullish_ob']['high_idr'] + ob['bullish_ob']['low_idr']) / 2
-        dekat_bull_ob = abs(harga_idr - ob_mid) / ob_mid < 0.005
+        dekat_bull_ob = abs(harga_idr - ob_mid) / ob_mid < 0.008
 
     if ob['bearish_ob']:
         ob['bearish_ob']['high_idr'] = ob['bearish_ob']['high'] * usd_idr
         ob['bearish_ob']['low_idr']  = ob['bearish_ob']['low'] * usd_idr
         ob_mid = (ob['bearish_ob']['high_idr'] + ob['bearish_ob']['low_idr']) / 2
-        dekat_bear_ob = abs(harga_idr - ob_mid) / ob_mid < 0.005
+        dekat_bear_ob = abs(harga_idr - ob_mid) / ob_mid < 0.008
 
-    # Pola SMC
-    bull_sweep = (lower_wick > candle_range * 0.45) and vol_spike and (c['close'] >= p['low'])
-    bear_sweep = (upper_wick > candle_range * 0.45) and vol_spike and (c['close'] <= p['high'])
+    # Pola SMC (Dilonggarkan persentasenya)
+    bull_sweep = (lower_wick > candle_range * 0.35) and vol_spike and (c['close'] >= p['low'])
+    bear_sweep = (upper_wick > candle_range * 0.35) and vol_spike and (c['close'] <= p['high'])
 
-    # Absorpsi sekarang lebih akurat karena membandingkan dengan median range
-    is_absorption = vol_spike and (body_size < avg_range * 0.4)
+    is_absorption = vol_spike and (body_size < avg_range * 0.5)
 
-    bull_breakout = (c['close'] > c['open']) and (body_size > avg_range * 1.2) and vol_spike
-    bear_breakout = (c['close'] < c['open']) and (body_size > avg_range * 1.2) and vol_spike
-
-    # Filter akhir pekan
-    if is_weekend and vol_ratio < 1.3:
-        return None
+    bull_breakout = (c['close'] > c['open']) and (body_size > avg_range * 1.0) and vol_spike
+    bear_breakout = (c['close'] < c['open']) and (body_size > avg_range * 1.0) and vol_spike
 
     sl_buy, tp_buy   = harga_idr - 1.8 * atr_idr, harga_idr + 3.0 * atr_idr
     sl_sell, tp_sell = harga_idr + 1.8 * atr_idr, harga_idr - 3.0 * atr_idr
@@ -234,23 +217,23 @@ def analisa(
         'sl_sell': sl_sell, 'tp_sell': tp_sell,
     }
 
-    # Penentuan Sinyal
-    if bull_sweep and trend_4h_bull and cvd_naik:
+    # --- PENENTUAN SINYAL LEBIH AGRESIF (TANPA SYARAT WAJIB TREN 4H) ---
+    if bull_sweep and vol_spike:
         return {**base, 'tipe': 'BULL_SWEEP', 'aksi': 'BELI', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
-    if bear_sweep and cvd_turun:
+    if bear_sweep and vol_spike:
         return {**base, 'tipe': 'BEAR_SWEEP', 'aksi': 'JUAL', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
-    if dekat_bull_ob and trend_4h_bull and cvd_naik and vol_spike:
+    if dekat_bull_ob and vol_spike:
         return {**base, 'tipe': 'BULL_OB', 'aksi': 'BELI', 'strength': '🔥🔥'}
-    if dekat_bear_ob and cvd_turun and vol_spike:
+    if dekat_bear_ob and vol_spike:
         return {**base, 'tipe': 'BEAR_OB', 'aksi': 'JUAL', 'strength': '🔥🔥'}
     if is_absorption:
-        if (c['close'] > c['open']) and trend_4h_bull and cvd_naik:
+        if (c['close'] > c['open']):
             return {**base, 'tipe': 'AKUMULASI', 'aksi': 'BELI', 'strength': '🔥'}
-        if (c['close'] < c['open']) and cvd_turun:
+        if (c['close'] < c['open']):
             return {**base, 'tipe': 'DISTRIBUSI', 'aksi': 'JUAL', 'strength': '🔥'}
-    if bull_breakout and trend_4h_bull and cvd_naik:
+    if bull_breakout and vol_spike:
         return {**base, 'tipe': 'BULL_BREAKOUT', 'aksi': 'BELI', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
-    if bear_breakout and cvd_turun:
+    if bear_breakout and vol_spike:
         return {**base, 'tipe': 'BEAR_BREAKOUT', 'aksi': 'JUAL', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
 
     return None
@@ -283,7 +266,6 @@ def format_pesan(symbol: str, s: dict) -> str:
         else: fr_str = f"{fr*100:+.4f}% (normal)"
 
     ob_info = ""
-    # Memanggil nilai konversi IDR yang sudah dihitung di fungsi analisa()
     if s.get('dekat_bull_ob') and s.get('ob_bull_zone'):
         z = s['ob_bull_zone']
         ob_info = f"\n*Area Order Block:*\n  {format_rp(z['low_idr'])} — {format_rp(z['high_idr'])}\n"
@@ -311,7 +293,6 @@ def format_pesan(symbol: str, s: dict) -> str:
         f"  TP : {format_rp(tp)}"
     )
     return pesan
-
 
 # ============================================================
 # LAPORAN PORTOFOLIO
@@ -364,13 +345,11 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float, fear_greed: dict):
     )
     await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
-
 # ============================================================
 # MAIN
 # ============================================================
 
 async def main():
-    # Exchange spot
     exchange = ccxt.kucoin({
         'enableRateLimit': True,
         'options': {'defaultType': 'spot'},
@@ -378,7 +357,6 @@ async def main():
     })
     exchange.load_markets()
 
-    # Exchange futures (read-only untuk funding rate)
     exchange_futures = ccxt.kucoinfutures({
         'enableRateLimit': True,
         'timeout': 30_000,
@@ -390,7 +368,7 @@ async def main():
     now_wib    = datetime.now(timezone.utc) + timedelta(hours=7)
     is_weekend = now_wib.weekday() in [5, 6]
     
-    # --- INISIALISASI PAPER TRADING ---
+    # --- INISIALISASI PAPER TRADING (KHUSUS ETH-IDR) ---
     pt = PaperTrader()
 
     print(f"[{now_wib.strftime('%H:%M WIB')}] USD/IDR={usd_idr:,.0f} | "
@@ -399,7 +377,6 @@ async def main():
 
     for symbol in ASSET_LIST:
         try:
-            # Data OHLCV
             bars_1h = exchange.fetch_ohlcv(symbol, '1h', limit=60)
             bars_4h = exchange.fetch_ohlcv(symbol, '4h', limit=60)
 
@@ -411,31 +388,29 @@ async def main():
                 bars_4h, columns=['timestamp','open','high','low','close','volume']
             ).astype({'open':float,'high':float,'low':float,'close':float,'volume':float})
 
-            # Funding rate
             futures_sym  = FUTURES_MAP.get(symbol)
             funding_rate = get_funding_rate(exchange_futures, futures_sym) if futures_sym else None
 
-            # Analisa
             hasil = analisa(df_1h, df_4h, usd_idr, funding_rate, fear_greed, is_weekend)
 
-            # --- 🧪 EKSEKUSI PAPER TRADING ---
-            current_close = df_1h['close'].iloc[-1]
-            harga_idr = current_close * usd_idr
-            pair_idr = f"{symbol.split('/')[0]}-IDR"
-            signal_type = hasil['tipe'] if hasil else None
-            
-            # Bot mengecek SL/TP & mencatat entry/exit
-            pt_msg = pt.process(
-                pair_name=pair_idr, 
-                signal_type=signal_type, 
-                current_price=harga_idr, 
-                current_time=now_wib.strftime('%Y-%m-%d %H:%M:%S')
-            )
-            
-            if pt_msg:
-                await bot.send_message(chat_id=CHAT_ID, text=pt_msg, parse_mode='Markdown')
-                print(f"  🧪 Notif Simulasi Terkirim: {pair_idr}")
-            # ---------------------------------
+            # --- 🧪 KHUSUS ETH/USDT DIJADIKAN TARGET PAPER TRADING ---
+            if symbol == 'ETH/USDT':
+                current_close = df_1h['close'].iloc[-1]
+                harga_idr = current_close * usd_idr
+                signal_type = hasil['tipe'] if hasil else None
+                
+                # Eksekusi simulasi khusus ETH-IDR
+                pt_msg = pt.process(
+                    pair_name="ETH-IDR", 
+                    signal_type=signal_type, 
+                    current_price=harga_idr, 
+                    current_time=now_wib.strftime('%Y-%m-%d %H:%M:%S')
+                )
+                
+                if pt_msg:
+                    await bot.send_message(chat_id=CHAT_ID, text=pt_msg, parse_mode='Markdown')
+                    print("  🧪 Notif Simulasi ETH-IDR Terkirim")
+            # --------------------------------------------------------
 
             if hasil:
                 pesan = format_pesan(symbol, hasil)
@@ -453,7 +428,6 @@ async def main():
     if now_wib.hour in JAM_LAPORAN and now_wib.minute < 30:
         await kirim_laporan(bot, exchange, usd_idr, fear_greed)
         print("  📊 Laporan portofolio terkirim")
-
 
 if __name__ == '__main__':
     asyncio.run(main())
