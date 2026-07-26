@@ -1,8 +1,8 @@
 """
 ========================================================
    KRIPTO BOT — Smart Money Concept (SMC) Paper Trader
-   Strategi: Liquidity Sweep + Order Block + ATR TP/SL
-   Target  : Khusus ETH-IDR (Fair Head-to-Head vs Teknikal)
+   Strategi: Liquidity Sweep (1H) + Swing Structure (4H)
+   Target  : Khusus ETH-IDR (Pasar Spot / Buy Only)
 ========================================================
 """
 
@@ -20,10 +20,10 @@ TOKEN   = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 INITIAL_CAPITAL_IDR = 1_000_000.0
-STATE_FILE          = "paper_trading_smc.json"  # Dipisah biar tidak bentrok
+STATE_FILE          = "paper_trading_smc.json"
 TARGET_SYMBOL       = "ETH/USDT"
 TARGET_PAIR_NAME    = "ETH-IDR"
-FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68
+FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (0.13% / 0.0013 x 10 = 0.013 per siklus roundtrip)
 
 # --- MANAJEMEN STATE PAPER TRADING SMC ---
 def load_state():
@@ -54,7 +54,18 @@ def get_usd_to_idr():
         response = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
         return response.json()['rates']['IDR']
     except Exception:
-        return 18000.0
+        return 16400.0
+
+# --- FUNGSI DETEKSI SWING 4H ---
+def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
+    """
+    Mencari titik terendah (Swing Low) dan tertinggi (Swing High)
+    dari N candle 4H terakhir untuk batas pertahanan Spot.
+    """
+    # Mengabaikan candle running (-1) agar swing tidak berubah-ubah di tengah candle
+    swing_low = df_4h['low'].iloc[-window-1:-1].min()
+    swing_high = df_4h['high'].iloc[-window-1:-1].max()
+    return {'swing_high': swing_high, 'swing_low': swing_low}
 
 class SMCIndependentTrader:
     def __init__(self):
@@ -63,7 +74,7 @@ class SMCIndependentTrader:
     def process_signal(self, signal_type, current_price, current_time, sl_price, tp_price):
         msg = None
         
-        # 1. Cek Exit (TP / SL / Bear Sweep)
+        # 1. CEK EXIT POSISI SPOT (TP / SL / Sinyal Bearish Emergency)
         if self.state["status"] == "IN_POSITION":
             buy_p = self.state["buy_price"]
             tp    = self.state["tp"]
@@ -84,16 +95,16 @@ class SMCIndependentTrader:
 
                 if pnl_rp > 0:
                     self.state["wins"] += 1
-                    status_title = "🟢 TAKE PROFIT (VIRTUAL SMC)"
+                    status_title = "🟢 TAKE PROFIT (SWING 4H)"
                 else:
                     self.state["losses"] += 1
-                    status_title = "🔴 EXIT / STOP LOSS (VIRTUAL SMC)"
+                    status_title = "🔴 EXIT / STOP LOSS (SWING 4H)"
 
-                reason = "Target TP (+3 ATR)" if is_tp else ("Stop Loss (-1.5 ATR)" if is_sl else "Sinyal BEAR_SWEEP")
+                reason = "Target TP (Swing High 4H)" if is_tp else ("Stop Loss (Swing Low 4H)" if is_sl else "Sinyal BEAR_SWEEP")
                 win_rate = (self.state["wins"] / self.state["total_trades"]) * 100 if self.state["total_trades"] > 0 else 0
 
                 msg = (
-                    f"🧪 *[PAPER TRADING - SMC]* {TARGET_PAIR_NAME}\n"
+                    f"🧪 *[PAPER TRADING - SMC SWING]* {TARGET_PAIR_NAME}\n"
                     f"──────────────────────────────\n"
                     f"Status    : {status_title}\n"
                     f"• Alasan  : {reason}\n"
@@ -106,7 +117,7 @@ class SMCIndependentTrader:
                 save_state(self.state)
                 return msg
 
-        # 2. Cek Entry (Bull Sweep)
+        # 2. CEK ENTRY POSISI SPOT (Hanya Beli saat Bull Sweep)
         elif self.state["status"] == "IDLE":
             if signal_type == "BULL_SWEEP":
                 self.state["status"] = "IN_POSITION"
@@ -117,13 +128,13 @@ class SMCIndependentTrader:
                 save_state(self.state)
 
                 msg = (
-                    f"🧪 *[PAPER TRADING - SMC]* {TARGET_PAIR_NAME}\n"
+                    f"🧪 *[PAPER TRADING - SMC SWING]* {TARGET_PAIR_NAME}\n"
                     f"──────────────────────────────\n"
-                    f"Strategi  : Liquidity Sweep + ATR\n"
+                    f"Strategi  : Sweep 1H + Swing 4H (Spot)\n"
                     f"Modal In  : Rp {self.state['balance']:,.0f}\n"
                     f"Harga In  : Rp {current_price:,.0f}\n"
-                    f"Target TP : Rp {tp_price:,.0f} (+3 ATR)\n"
-                    f"Batas SL  : Rp {sl_price:,.0f} (-1.5 ATR)"
+                    f"Target TP : Rp {tp_price:,.0f} (Swing High 4H)\n"
+                    f"Batas SL  : Rp {sl_price:,.0f} (Swing Low 4H)"
                 )
                 return msg
 
@@ -131,7 +142,7 @@ class SMCIndependentTrader:
 
 # --- MAIN EXECUTOR ---
 async def main():
-    print("DEBUG: Menjalankan Paper Trader SMC ATR (ETH-IDR)...")
+    print("DEBUG: Menjalankan Paper Trader SMC Swing 4H (ETH-IDR Spot)...")
     exchange = ccxt.kucoin({
         'enableRateLimit': True,
         'options': {'defaultType': 'spot'},
@@ -151,24 +162,29 @@ async def main():
     trader = SMCIndependentTrader()
     
     try:
-        bars = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='1h', limit=50)
-        if len(bars) < 40:
+        # Pull Data Multi-Timeframe: 1H (Trigger) & 4H (Structure)
+        bars_1h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='1h', limit=50)
+        bars_4h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='4h', limit=30)
+        
+        if len(bars_1h) < 40 or len(bars_4h) < 15:
             return
             
-        df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        # Kalkulasi ATR (14)
-        tr0 = df['high'] - df['low']
-        tr1 = (df['high'] - df['close'].shift(1)).abs()
-        tr2 = (df['low']  - df['close'].shift(1)).abs()
-        df['tr']  = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1)
-        df['atr'] = df['tr'].rolling(window=14).mean()
+        # Kalkulasi ATR 1H (Sebagai Buffer)
+        tr0 = df_1h['high'] - df_1h['low']
+        tr1 = (df_1h['high'] - df_1h['close'].shift(1)).abs()
+        tr2 = (df_1h['low']  - df_1h['close'].shift(1)).abs()
+        df_1h['tr']  = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1)
+        df_1h['atr'] = df_1h['tr'].rolling(window=14).mean()
 
-        avg_vol = df['volume'].iloc[-21:-1].median()
+        # Deteksi Signal Sweep di 1H
+        avg_vol = df_1h['volume'].iloc[-21:-1].median()
         curr_idx = -2
         prev_idx = -3
-        c = df.iloc[curr_idx]
-        p = df.iloc[prev_idx]
+        c = df_1h.iloc[curr_idx]
+        p = df_1h.iloc[prev_idx]
         
         candle_range = c['high'] - c['low']
         lower_wick = min(c['close'], c['open']) - c['low']
@@ -185,12 +201,28 @@ async def main():
             signal_type = "BEAR_SWEEP"
 
         harga_idr = c['close'] * usd_idr
-        atr_idr   = df['atr'].iloc[curr_idx] * usd_idr
+        atr_idr   = df_1h['atr'].iloc[curr_idx] * usd_idr
         
-        sl_bullish = harga_idr - (1.5 * atr_idr)
-        tp_bullish = harga_idr + (3.0 * atr_idr)
+        # Kalkulasi Swing High & Swing Low 4H
+        swing = deteksi_swing_4h(df_4h, window=7)
+        swing_high_idr = swing['swing_high'] * usd_idr
+        swing_low_idr  = swing['swing_low'] * usd_idr
         
-        # Diperbaiki: Pisahkan variabel waktu agar bebas syntax error
+        # LOGIKA PERBAIKAN SL & TP SWING (SPOT FRIENDLY)
+        # SL = Berada di bawah Swing Low 4H + buffer 0.5 ATR
+        sl_bullish = swing_low_idr - (0.5 * atr_idr)
+        # TP = Mengincar Puncak Swing High 4H
+        tp_bullish = swing_high_idr
+
+        # FILTER PENGAMAN (Emergency Fallback)
+        # Jika Swing High 4H terlalu dekat/di bawah harga beli saat ini
+        if tp_bullish <= harga_idr * 1.015:
+            tp_bullish = harga_idr + (3.5 * atr_idr)
+            
+        # Jika Swing Low 4H terlalu dekat/di atas harga beli saat ini
+        if sl_bullish >= harga_idr * 0.985:
+            sl_bullish = harga_idr - (1.8 * atr_idr)
+        
         now_w_ib_str = now_wib.strftime('%Y-%m-%d %H:%M:%S')
         pt_msg = trader.process_signal(
             signal_type=signal_type,
@@ -202,9 +234,9 @@ async def main():
         
         if pt_msg:
             await bot.send_message(chat_id=CHAT_ID, text=pt_msg, parse_mode='Markdown')
-            print("  🧪 Notif Simulasi SMC ATR ETH-IDR Terkirim")
+            print("  🧪 Notif Simulasi SMC Swing ETH-IDR Terkirim")
         else:
-            print("  — SMC ATR ETH-IDR: Tidak ada aksi (Posisi aktif / Sinyal nihil)")
+            print("  — SMC Swing ETH-IDR: Tidak ada aksi (Posisi aktif / Sinyal nihil)")
 
     except Exception as e:
         print(f"Error pada paper trader SMC: {e}")
