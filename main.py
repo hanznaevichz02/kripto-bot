@@ -1,22 +1,23 @@
 """
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
-   Versi: 3.3 (Agresif Sampling & Clean Architecture)
+   Versi: 3.4 (Swing 4H Risk Management & SMC Engine)
 ========================================================
 
    Sumber Data:
-     - KuCoin (OHLCV, Volume)         via ccxt
+     - KuCoin (OHLCV Spot & Volume)   via ccxt
      - Fear & Greed Index             via alternative.me (GRATIS)
      - Funding Rate                   via KuCoin Futures (GRATIS)
      - Kurs USD/IDR                   via exchangerate-api.com (GRATIS)
   
    Konsep Utama:
-     - Liquidity Sweep  → Whale nyapu stop loss ritel
+     - Liquidity Sweep  → Whale nyapu stop loss ritel (1H Trigger)
      - Volume Absorption→ Akumulasi/distribusi diam-diam
      - Order Block      → Zona order besar (dengan filter mitigasi)
-     - CVD (Revisi)     → Arah tekanan beli/jual dari rasio body candle
-     - Funding Rate     → Sentimen futures (jebakan long/short)
-     - Fear & Greed     → Sentimen market global
+     - Swing Structure  → Batas SL/TP presisi berbasis Swing Low/High (4H)
+     - CVD (Delta Vol)  → Arah akumulasi/distribusi dari rasio body
+     - Funding Rate     → Sentimen pasar futures
+     - Fear & Greed     → Sentimen makro pasar kripto
 ========================================================
 """
 
@@ -42,7 +43,7 @@ PORTFOLIO = {
 ASSET_LIST = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'SUI/USDT',
     'XRP/USDT', 'LINK/USDT', 'AAVE/USDT', 'DOT/USDT', 'ONDO/USDT',
-   'ARB/USDT', 'NEAR/USDT', 'ZEC/USDT', 'TAO/USDT', 'AVAX/USDT'
+    'ARB/USDT', 'NEAR/USDT', 'ZEC/USDT', 'TAO/USDT', 'AVAX/USDT'
 ]
 
 FUTURES_MAP = {
@@ -92,7 +93,7 @@ def format_rp(nilai: float) -> str:
     return f"Rp {nilai:,.0f}"
 
 # ============================================================
-# KALKULASI INDIKATOR
+# KALKULASI INDIKATOR & STRUKTUR PASAR
 # ============================================================
 
 def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
@@ -108,6 +109,12 @@ def hitung_volume_delta(df: pd.DataFrame) -> pd.Series:
     delta = df['volume'] * ((df['close'] - df['open']) / hl)
     return delta
 
+def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
+    """Mencari area Swing Low dan Swing High dari struktur 4H."""
+    swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
+    swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
+    return {'swing_high': swing_high, 'swing_low': swing_low}
+
 def deteksi_order_block(df: pd.DataFrame) -> dict:
     result = {'bullish_ob': None, 'bearish_ob': None}
     avg_body = (df['close'] - df['open']).abs().rolling(10).median()
@@ -122,18 +129,18 @@ def deteksi_order_block(df: pd.DataFrame) -> dict:
 
         if row['close'] < row['open'] and nxt['close'] > row['high']:
             if df.iloc[i+2:]['close'].min() >= row['low']:
-                result['bullish_ob'] = {'high': row['high'], 'low': row['low']}
+                result['bullish_ob'] = {'high': float(row['high']), 'low': float(row['low'])}
                 break
 
         if row['close'] > row['open'] and nxt['close'] < row['low']:
             if df.iloc[i+2:]['close'].max() <= row['high']:
-                result['bearish_ob'] = {'high': row['high'], 'low': row['low']}
+                result['bearish_ob'] = {'high': float(row['high']), 'low': float(row['low'])}
                 break
 
     return result
 
 # ============================================================
-# ANALISA UTAMA
+# ANALISA UTAMA (SMC SCANNER)
 # ============================================================
 
 def analisa(
@@ -145,14 +152,15 @@ def analisa(
     is_weekend: bool,
 ) -> dict | None:
 
-    if len(df_1h) < 50 or len(df_4h) < 50:
+    if len(df_1h) < 50 or len(df_4h) < 20:
         return None
 
+    # Trend Macro 4H
     df_4h['ema50'] = df_4h['close'].ewm(span=50, adjust=False).mean()
     trend_4h_bull  = df_4h['close'].iloc[-1] > df_4h['ema50'].iloc[-1]
 
-    c = df_1h.iloc[-1]
-    p = df_1h.iloc[-2]
+    c = df_1h.iloc[-2]  # Candle closed terakhir
+    p = df_1h.iloc[-3]  # Candle sebelumnya
 
     harga_idr = c['close'] * usd_idr
     atr_idr   = hitung_atr(df_1h) * usd_idr
@@ -170,7 +178,7 @@ def analisa(
     vol_ultra = c['volume'] > avg_vol * 2.5
 
     deltas     = hitung_volume_delta(df_1h)
-    cvd_delta  = round(deltas.iloc[-1], 4)
+    cvd_delta  = round(deltas.iloc[-2], 4)
     cvd_naik   = cvd_delta > 0
     cvd_turun  = cvd_delta < 0
 
@@ -199,8 +207,26 @@ def analisa(
     bull_breakout = (c['close'] > c['open']) and (body_size > avg_range * 1.0) and vol_spike
     bear_breakout = (c['close'] < c['open']) and (body_size > avg_range * 1.0) and vol_spike
 
-    sl_buy, tp_buy   = harga_idr - 1.8 * atr_idr, harga_idr + 3.0 * atr_idr
-    sl_sell, tp_sell = harga_idr + 1.8 * atr_idr, harga_idr - 3.0 * atr_idr
+    # HITUNG SL & TP DINAMIS BERDASARKAN SWING 4H
+    swing_4h = deteksi_swing_4h(df_4h, window=7)
+    swing_high_idr = swing_4h['swing_high'] * usd_idr
+    swing_low_idr  = swing_4h['swing_low'] * usd_idr
+
+    # Skenario Buy (Bullish)
+    sl_buy = swing_low_idr - (0.5 * atr_idr)
+    tp_buy = swing_high_idr
+    if tp_buy <= harga_idr * 1.015:
+        tp_buy = harga_idr + (3.5 * atr_idr)
+    if sl_buy >= harga_idr * 0.985:
+        sl_buy = harga_idr - (1.8 * atr_idr)
+
+    # Skenario Sell (Bearish)
+    sl_sell = swing_high_idr + (0.5 * atr_idr)
+    tp_sell = swing_low_idr
+    if tp_sell >= harga_idr * 0.985:
+        tp_sell = harga_idr - (3.5 * atr_idr)
+    if sl_sell <= harga_idr * 1.015:
+        sl_sell = harga_idr + (1.8 * atr_idr)
 
     base = {
         'harga': harga_idr, 'vol_ratio': vol_ratio,
@@ -264,10 +290,10 @@ def format_pesan(symbol: str, s: dict) -> str:
     ob_info = ""
     if s.get('dekat_bull_ob') and s.get('ob_bull_zone'):
         z = s['ob_bull_zone']
-        ob_info = f"\n*Area Order Block:*\n  {format_rp(z['low_idr'])} — {format_rp(z['high_idr'])}\n"
-    if s.get('dekat_bear_ob') and s.get('ob_bear_zone'):
+        ob_info = f"\n*Area Order Block Bullish:*\n  {format_rp(z['low_idr'])} — {format_rp(z['high_idr'])}\n"
+    elif s.get('dekat_bear_ob') and s.get('ob_bear_zone'):
         z = s['ob_bear_zone']
-        ob_info = f"\n*Area Order Block:*\n  {format_rp(z['low_idr'])} — {format_rp(z['high_idr'])}\n"
+        ob_info = f"\n*Area Order Block Bearish:*\n  {format_rp(z['low_idr'])} — {format_rp(z['high_idr'])}\n"
 
     sl = s['sl_buy'] if s['aksi'] == 'BELI' else s['sl_sell']
     tp = s['tp_buy'] if s['aksi'] == 'BELI' else s['tp_sell']
@@ -284,7 +310,7 @@ def format_pesan(symbol: str, s: dict) -> str:
         f"\n*Sentimen Market:*\n"
         f"  • Fear/Greed : {s['fear_greed']['value']} ({s['fear_greed']['label']})\n"
         f"  • Funding    : {fr_str}\n"
-        f"\n*Saran Manajemen Risiko:*\n"
+        f"\n*Saran Manajemen Risiko (Swing 4H):*\n"
         f"  SL : {format_rp(sl)}\n"
         f"  TP : {format_rp(tp)}"
     )
@@ -326,7 +352,6 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float, fear_greed: dict):
     ikon_total    = "🟢" if total_pnl_pct >= 0 else "🔴"
     now_wib       = datetime.now(timezone.utc) + timedelta(hours=7)
     
-    # Terjemahan label Fear & Greed ke bahasa Indonesia
     fng_translation = {
         "Extreme Fear": "Ketakutan Ekstrem",
         "Fear": "Takut",
@@ -337,7 +362,6 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float, fear_greed: dict):
     label_indo = fng_translation.get(fear_greed['label'], fear_greed['label'])
     fg_str = f"{fear_greed['value']} — {label_indo}"
 
-    # Logika otomatis Ritel vs Bandar berdasarkan kondisi pasar
     behavior_map = {
         "Extreme Fear": "Ritel Panik JUAL, Bandar BELI",
         "Fear": "Ritel cicil JUAL, Bandar cicil BELI",
@@ -364,7 +388,7 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float, fear_greed: dict):
     await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
 # ============================================================
-# MAIN
+# MAIN EXECUTOR
 # ============================================================
 
 async def main():
@@ -418,9 +442,9 @@ async def main():
         except Exception as e:
             print(f"  ❌ Error {symbol}: {e}")
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1.5)
 
-    # Laporan portofolio 3× sehari
+    # Laporan portofolio 3× sehari (Pukul 09:00, 14:00, 20:00 WIB)
     if now_wib.hour in JAM_LAPORAN and now_wib.minute < 30:
         await kirim_laporan(bot, exchange, usd_idr, fear_greed)
         print("  📊 Laporan portofolio terkirim")
