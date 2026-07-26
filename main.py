@@ -18,6 +18,7 @@
      - Funding Rate     → Sentimen futures (jebakan long/short)
      - Fear & Greed     → Sentimen market global
 ========================================================
+
 """
 
 import os
