@@ -166,7 +166,7 @@ def analisa(
     vol_ratio    = round(c['volume'] / avg_vol, 2)
 
     vol_spike = c['volume'] > avg_vol * 1.5
-    vol_ultra = c['volume'] > abs(avg_vol * 2.5)
+    vol_ultra = c['volume'] > avg_vol * 2.5
 
     deltas     = hitung_volume_delta(df_1h)
     cvd_delta  = round(deltas.iloc[-1], 4)
