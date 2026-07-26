@@ -89,7 +89,6 @@ class SMCIndependentTrader:
                     self.state["losses"] += 1
                     status_title = "🔴 EXIT / STOP LOSS (VIRTUAL SMC)"
 
-                # DIUBAH MENJADI +3 ATR
                 reason = "Target TP (+3 ATR)" if is_tp else ("Stop Loss (-1.5 ATR)" if is_sl else "Sinyal BEAR_SWEEP")
                 win_rate = (self.state["wins"] / self.state["total_trades"]) * 100 if self.state["total_trades"] > 0 else 0
 
@@ -123,7 +122,7 @@ class SMCIndependentTrader:
                     f"Strategi  : Liquidity Sweep + ATR\n"
                     f"Modal In  : Rp {self.state['balance']:,.0f}\n"
                     f"Harga In  : Rp {current_price:,.0f}\n"
-                    f"Target TP : Rp {tp_price:,.0f} (+3 ATR)\n" # DIUBAH MENJADI +3 ATR
+                    f"Target TP : Rp {tp_price:,.0f} (+3 ATR)\n"
                     f"Batas SL  : Rp {sl_price:,.0f} (-1.5 ATR)"
                 )
                 return msg
@@ -191,10 +190,12 @@ async def main():
         sl_bullish = harga_idr - (1.5 * atr_idr)
         tp_bullish = harga_idr + (3.0 * atr_idr)
         
+        # Diperbaiki: Pisahkan variabel waktu agar bebas syntax error
+        now_w_ib_str = now_wib.strftime('%Y-%m-%d %H:%M:%S')
         pt_msg = trader.process_signal(
             signal_type=signal_type,
             current_price=harga_idr,
-            current_time=now_w_ib_str := now_wib.strftime('%Y-%m-%d %H:%M:%S'),
+            current_time=now_w_ib_str,
             sl_price=sl_bullish,
             tp_price=tp_bullish
         )
