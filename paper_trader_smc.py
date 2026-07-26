@@ -23,7 +23,7 @@ INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading.json"
 TARGET_SYMBOL       = "ETH/USDT"
 TARGET_PAIR_NAME    = "ETH-IDR"
-FEE_TAX_RATE        = 0.0065  # Fee + Pajak PMK 68
+FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68
 
 # --- MANAJEMEN STATE PAPER TRADING SMC ---
 def load_state():
@@ -66,7 +66,7 @@ class SMCIndependentTrader:
             buy_p = self.state["buy_price"]
             price_change_pct = ((current_price - buy_p) / buy_p) * 100
 
-            is_tp = price_change_pct >= 1.5
+            is_tp = price_change_pct >= 2.5
             is_sl = price_change_pct <= -1.0
             is_bear_signal = signal_type == "BEAR_SWEEP"
 
@@ -86,7 +86,7 @@ class SMCIndependentTrader:
                     self.state["losses"] += 1
                     status_title = "🔴 EXIT / STOP LOSS (VIRTUAL SMC)"
 
-                reason = "Target TP (+1.5%)" if is_tp else ("Stop Loss (-1.0%)" if is_sl else "Sinyal BEAR_SWEEP")
+                reason = "Target TP (+2.5%)" if is_tp else ("Stop Loss (-1.0%)" if is_sl else "Sinyal BEAR_SWEEP")
                 win_rate = (self.state["wins"] / self.state["total_trades"]) * 100 if self.state["total_trades"] > 0 else 0
 
                 msg = (
@@ -117,7 +117,7 @@ class SMCIndependentTrader:
                     f"Strategi  : Liquidity Sweep (Bullish)\n"
                     f"Modal In  : Rp {self.state['balance']:,.0f}\n"
                     f"Harga In  : Rp {current_price:,.0f}\n"
-                    f"Target TP : Rp {current_price * 1.015:,.0f} (+1.5%)\n"
+                    f"Target TP : Rp {current_price * 1.015:,.0f} (+2.5%)\n"
                     f"Batas SL  : Rp {current_price * 0.990:,.0f} (-1.0%)"
                 )
                 return msg
