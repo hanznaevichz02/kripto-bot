@@ -356,10 +356,10 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float, fear_greed: dict):
         + f"Total Beli : {format_rp(total_modal)}\n"
         + f"Total Skrg : {format_rp(total_nilai)}\n"
         + f"Total P/L  : {total_pnl_pct:+.2f}% ({format_rp(total_pnl)})\n"
-        + f"```\n"
-        + f"──────────────────────────────\n"
-        + f"Kondisi Pasar: *{fg_str}*\n"
-        + f"└ _{analisis_pasar}_"
+        + f"------------------------------\n"
+        + f"Pasar      : {fg_str}\n"
+        + f"Aksi       : {analisis_pasar}\n"
+        + f"```"
     )
     await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
