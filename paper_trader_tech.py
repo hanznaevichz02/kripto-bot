@@ -16,14 +16,15 @@ import requests
 from telegram import Bot
 
 # --- KONFIGURASI ---
-TOKEN   = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TOKEN               = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID             = os.getenv("TELEGRAM_CHAT_ID")
 
 VOL_MULTIPLIER      = 2.0
 INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_tech.json"
 TARGET_SYMBOL       = "ETH/USDT"
 TARGET_PAIR_NAME    = "ETH-IDR"
+FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 dipotong saat sell
 
 # --- MANAJEMEN STATE PAPER TRADING (FAIR HEAD-TO-HEAD) ---
 def load_state():
@@ -71,14 +72,18 @@ class TechnicalPaperTrader:
             
             if is_win or is_loss:
                 exit_reason = "TAKE PROFIT 🎯" if is_win else "STOP LOSS 🛑"
-                final_val   = current_price * amount
-                modal_val   = entry_p * amount
-                pnl_val     = final_val - modal_val
-                pnl_pct     = (pnl_val / modal_val) * 100
-                status      = "WIN" if is_win else "LOSS"
                 
-                # Update kas (sisa kas + nilai akhir posisi)
-                self.state["cash_idr"] += final_val
+                gross_final_val = current_price * amount
+                fee_tax_amount  = gross_final_val * FEE_TAX_RATE
+                net_final_val   = gross_final_val - fee_tax_amount
+                
+                modal_val       = entry_p * amount
+                pnl_val         = net_final_val - modal_val
+                pnl_pct         = (pnl_val / modal_val) * 100
+                status          = "WIN" if is_win else "LOSS"
+                
+                # Update kas (sisa kas + nilai bersih setelah dipotong pajak)
+                self.state["cash_idr"] += net_final_val
                 
                 # Rekap history
                 trade_record = {
@@ -210,7 +215,7 @@ async def main():
         tp_bullish = harga_idr + (2.0 * atr_idr)
         
         # 2. Kondisi Golden Cross & Sudut Kemiringan EMA
-        slope_ema9     = abs(df['ema9'].iloc[curr_idx] - df['ema9'].iloc[prev_idx]) / df['ema9'].iloc[prev_idx] * 100
+        slope_ema9   = abs(df['ema9'].iloc[curr_idx] - df['ema9'].iloc[prev_idx]) / df['ema9'].iloc[prev_idx] * 100
         is_sudut_tajam = slope_ema9 > 0.25 
         
         ema9_now  = df['ema9'].iloc[curr_idx]
