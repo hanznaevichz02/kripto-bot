@@ -177,10 +177,10 @@ def analisa(
     vol_spike = c['volume'] > avg_vol * 1.5
     vol_ultra = c['volume'] > avg_vol * 2.5
 
-    deltas     = hitung_volume_delta(df_1h)
-    cvd_delta  = round(deltas.iloc[-2], 4)
-    cvd_naik   = cvd_delta > 0
-    cvd_turun  = cvd_delta < 0
+    deltas    = hitung_volume_delta(df_1h)
+    cvd_delta = round(deltas.iloc[-2], 4)
+    cvd_naik  = cvd_delta > 0
+    cvd_turun = cvd_delta < 0
 
     ob = deteksi_order_block(df_1h)
 
@@ -240,23 +240,33 @@ def analisa(
         'sl_sell': sl_sell, 'tp_sell': tp_sell,
     }
 
-    if bull_sweep and vol_spike:
-        return {**base, 'tipe': 'BULL_SWEEP', 'aksi': 'BELI', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
-    if bear_sweep and vol_spike:
-        return {**base, 'tipe': 'BEAR_SWEEP', 'aksi': 'JUAL', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
+    # 1. SWEEP (Reversal Diskon - Paling Valid untuk Entry Spot SMC) 
+    if bull_sweep:
+        return {**base, 'tipe': 'BULL_SWEEP', 'aksi': '🟢 GAS BELI (ENTRY DISKON)', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
+    
+    if bear_sweep:
+        return {**base, 'tipe': 'BEAR_SWEEP', 'aksi': '🔴 GAS EXIT / TAKE PROFIT', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
+
+    # 2. ORDER BLOCK (Zona Demand / Supply)
     if dekat_bull_ob and vol_spike:
-        return {**base, 'tipe': 'BULL_OB', 'aksi': 'BELI', 'strength': '🔥🔥'}
+        return {**base, 'tipe': 'BULL_OB', 'aksi': '🟢 ZONA BELI BANDAR', 'strength': '🔥🔥'}
+    
     if dekat_bear_ob and vol_spike:
-        return {**base, 'tipe': 'BEAR_OB', 'aksi': 'JUAL', 'strength': '🔥🔥'}
+        return {**base, 'tipe': 'BEAR_OB', 'aksi': '🔴 ZONA JUAL BANDAR', 'strength': '🔥🔥'}
+
+    # 3. ABSORPTION (Akumulasi / Distribusi Volume Meledak Spread Sempit)
     if is_absorption:
-        if (c['close'] > c['open']):
-            return {**base, 'tipe': 'AKUMULASI', 'aksi': 'BELI', 'strength': '🔥'}
-        if (c['close'] < c['open']):
-            return {**base, 'tipe': 'DISTRIBUSI', 'aksi': 'JUAL', 'strength': '🔥'}
-    if bull_breakout and vol_spike:
-        return {**base, 'tipe': 'BULL_BREAKOUT', 'aksi': 'BELI', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
-    if bear_breakout and vol_spike:
-        return {**base, 'tipe': 'BEAR_BREAKOUT', 'aksi': 'JUAL', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
+        if c['close'] >= c['open']:
+            return {**base, 'tipe': 'AKUMULASI', 'aksi': '🟡 CICIL BELI (DCA)', 'strength': '🔥'}
+        else:
+            return {**base, 'tipe': 'DISTRIBUSI', 'aksi': '⚠️ HINDARI / AMBIL UNTUNG', 'strength': '🔥'}
+
+    # 4. BREAKOUT (Jangan Langsung Hantam Beli - Tunggu Retest!)
+    if bull_breakout:
+        return {**base, 'tipe': 'BULL_BREAKOUT', 'aksi': '⏳ PANTAU (WAIT RETEST)', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
+    
+    if bear_breakout:
+        return {**base, 'tipe': 'BEAR_BREAKOUT', 'aksi': '🚨 BAHAYA (POTENSI DUMP)', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
 
     return None
 
