@@ -265,12 +265,12 @@ def analisa(
 # ============================================================
 
 DESKRIPSI = {
-    'BULL_SWEEP':    ("🐋 WHALE SWEEP NAIK", "Bandar sapu SL ritel, Harga akan LONCAT NAIK."),
-    'BEAR_SWEEP':    ("🚨 WHALE SWEEP TURUN", "Bandar jebak ritel beli, Harga akan TURUN DRASTIS."),
-    'BULL_OB':       ("📦 ORDER BLOCK BULLISH", "Harga kembali ke zona beli bandar sebelumnya."),
-    'BEAR_OB':       ("📦 ORDER BLOCK BEARISH", "Harga menyentuh zona jual bandar sebelumnya."),
-    'AKUMULASI':     ("🤫 AKUMULASI DIAM-DIAM", "Volume meledak, spread sempit. BANDAR BELI barang pelan-pelan."),
-    'DISTRIBUSI':    ("⚠️ DISTRIBUSI DIAM-DIAM", "Volume meledak, spread sempit. BANDAR JUAL barang pelan-pelan."),
+    'BULL_SWEEP':    ("🐋 HARGA AKAN NAIK", "Bandar sapu SL ritel, Harga akan LONCAT NAIK."),
+    'BEAR_SWEEP':    ("🚨 HARGA AKAN TURUN", "Bandar jebak ritel beli, Harga akan TURUN DRASTIS."),
+    'BULL_OB':       ("📦 ZONA BELI BANDAR", "Harga kembali ke zona beli bandar sebelumnya."),
+    'BEAR_OB':       ("📦 ZONA JUAL BANDAR", "Harga menyentuh zona jual bandar sebelumnya."),
+    'AKUMULASI':     ("🤫 BANDAR BELI DIAM-DIAM", "Volume meledak, spread sempit. BANDAR BELI barang pelan-pelan."),
+    'DISTRIBUSI':    ("⚠️ BANDAR JUAL DIAM-DIAM", "Volume meledak, spread sempit. BANDAR JUAL barang pelan-pelan."),
     'BULL_BREAKOUT': ("🚀 BREAKOUT VOLUME", "Modal besar JEBOL ATAP ke atas."),
     'BEAR_BREAKOUT': ("💥 BREAKDOWN VOLUME", "Modal besar JEBOL LANTAI ke bawah."),
 }
