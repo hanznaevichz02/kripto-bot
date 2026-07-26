@@ -1,14 +1,14 @@
 """
 ========================================================
-   KRIPTO BOT — Smart Money Edition + Focused Paper Trading
-   Versi: 3.3 (Agresif Sampling & Dedicated ETH-IDR)
+   KRIPTO BOT — Smart Money Edition (Main Scanner)
+   Versi: 3.3 (Agresif Sampling & Clean Architecture)
 ========================================================
 
    Sumber Data:
-     - KuCoin (OHLCV, Volume)        via ccxt
-     - Fear & Greed Index            via alternative.me (GRATIS)
-     - Funding Rate                  via KuCoin Futures (GRATIS)
-     - Kurs USD/IDR                  via exchangerate-api.com (GRATIS)
+     - KuCoin (OHLCV, Volume)         via ccxt
+     - Fear & Greed Index             via alternative.me (GRATIS)
+     - Funding Rate                   via KuCoin Futures (GRATIS)
+     - Kurs USD/IDR                   via exchangerate-api.com (GRATIS)
   
    Konsep Utama:
      - Liquidity Sweep  → Whale nyapu stop loss ritel
@@ -18,7 +18,6 @@
      - Funding Rate     → Sentimen futures (jebakan long/short)
      - Fear & Greed     → Sentimen market global
 ========================================================
-
 """
 
 import os
@@ -28,7 +27,6 @@ import pandas as pd
 import requests
 from telegram import Bot
 from datetime import datetime, timedelta, timezone
-from paper_trader import PaperTrader
 
 # ============================================================
 # KONFIGURASI
@@ -134,7 +132,7 @@ def deteksi_order_block(df: pd.DataFrame) -> dict:
     return result
 
 # ============================================================
-# ANALISA UTAMA (VERSI AGRESIF / FLEKSIBEL UNTUK SAMPLING)
+# ANALISA UTAMA
 # ============================================================
 
 def analisa(
@@ -149,7 +147,6 @@ def analisa(
     if len(df_1h) < 50 or len(df_4h) < 50:
         return None
 
-    # Tren 4H (Hanya sebagai info tambahan, tidak memblokir sinyal)
     df_4h['ema50'] = df_4h['close'].ewm(span=50, adjust=False).mean()
     trend_4h_bull  = df_4h['close'].iloc[-1] > df_4h['ema50'].iloc[-1]
 
@@ -168,7 +165,7 @@ def analisa(
     lower_wick   = min(c['close'], c['open']) - c['low']
     vol_ratio    = round(c['volume'] / avg_vol, 2)
 
-    vol_spike = c['volume'] > avg_vol * 1.5  # Dilonggarkan dari 1.8x jadi 1.5x
+    vol_spike = c['volume'] > avg_vol * 1.5
     vol_ultra = c['volume'] > abs(avg_vol * 2.5)
 
     deltas     = hitung_volume_delta(df_1h)
@@ -193,7 +190,6 @@ def analisa(
         ob_mid = (ob['bearish_ob']['high_idr'] + ob['bearish_ob']['low_idr']) / 2
         dekat_bear_ob = abs(harga_idr - ob_mid) / ob_mid < 0.008
 
-    # Pola SMC (Dilonggarkan persentasenya)
     bull_sweep = (lower_wick > candle_range * 0.35) and vol_spike and (c['close'] >= p['low'])
     bear_sweep = (upper_wick > candle_range * 0.35) and vol_spike and (c['close'] <= p['high'])
 
@@ -217,7 +213,6 @@ def analisa(
         'sl_sell': sl_sell, 'tp_sell': tp_sell,
     }
 
-    # --- PENENTUAN SINYAL LEBIH AGRESIF (TANPA SYARAT WAJIB TREN 4H) ---
     if bull_sweep and vol_spike:
         return {**base, 'tipe': 'BULL_SWEEP', 'aksi': 'BELI', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
     if bear_sweep and vol_spike:
@@ -335,13 +330,13 @@ async def kirim_laporan(bot: Bot, exchange, usd_idr: float, fear_greed: dict):
         f"📊 *PORTOFOLIO — {now_wib.strftime('%d %b %Y, %H:%M WIB')}*\n\n"
         + "\n".join(baris)
         + f"\n────────────────────\n"
-        f"{ikon_total} *SUMMARY*\n"
-        f"```\n"
-        f"Total Beli : {format_rp(total_modal)}\n"
-        f"Total Skrg : {format_rp(total_nilai)}\n"
-        f"Total P/L  : {total_pnl_pct:+.2f}% ({format_rp(total_pnl)})\n"
-        f"```\n"
-        f"😨 Fear & Greed : *{fg_str}*"
+        + f"{ikon_total} *SUMMARY*\n"
+        + f"```\n"
+        + f"Total Beli : {format_rp(total_modal)}\n"
+        + f"Total Skrg : {format_rp(total_nilai)}\n"
+        + f"Total P/L  : {total_pnl_pct:+.2f}% ({format_rp(total_pnl)})\n"
+        + f"```\n"
+        + f"😨 Fear & Greed : *{fg_str}*"
     )
     await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
 
@@ -367,9 +362,6 @@ async def main():
     fear_greed = get_fear_greed()
     now_wib    = datetime.now(timezone.utc) + timedelta(hours=7)
     is_weekend = now_wib.weekday() in [5, 6]
-    
-    # --- INISIALISASI PAPER TRADING (KHUSUS ETH-IDR) ---
-    pt = PaperTrader()
 
     print(f"[{now_wib.strftime('%H:%M WIB')}] USD/IDR={usd_idr:,.0f} | "
           f"F&G={fear_greed['value']} ({fear_greed['label']}) | "
@@ -392,25 +384,6 @@ async def main():
             funding_rate = get_funding_rate(exchange_futures, futures_sym) if futures_sym else None
 
             hasil = analisa(df_1h, df_4h, usd_idr, funding_rate, fear_greed, is_weekend)
-
-            # --- 🧪 KHUSUS ETH/USDT DIJADIKAN TARGET PAPER TRADING ---
-            if symbol == 'ETH/USDT':
-                current_close = df_1h['close'].iloc[-1]
-                harga_idr = current_close * usd_idr
-                signal_type = hasil['tipe'] if hasil else None
-                
-                # Eksekusi simulasi khusus ETH-IDR
-                pt_msg = pt.process(
-                    pair_name="ETH-IDR", 
-                    signal_type=signal_type, 
-                    current_price=harga_idr, 
-                    current_time=now_wib.strftime('%Y-%m-%d %H:%M:%S')
-                )
-                
-                if pt_msg:
-                    await bot.send_message(chat_id=CHAT_ID, text=pt_msg, parse_mode='Markdown')
-                    print("  🧪 Notif Simulasi ETH-IDR Terkirim")
-            # --------------------------------------------------------
 
             if hasil:
                 pesan = format_pesan(symbol, hasil)
