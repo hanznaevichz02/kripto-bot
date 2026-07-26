@@ -89,7 +89,8 @@ class SMCIndependentTrader:
                     self.state["losses"] += 1
                     status_title = "🔴 EXIT / STOP LOSS (VIRTUAL SMC)"
 
-                reason = "Target TP (+2 ATR)" if is_tp else ("Stop Loss (-1.5 ATR)" if is_sl else "Sinyal BEAR_SWEEP")
+                # DIUBAH MENJADI +3 ATR
+                reason = "Target TP (+3 ATR)" if is_tp else ("Stop Loss (-1.5 ATR)" if is_sl else "Sinyal BEAR_SWEEP")
                 win_rate = (self.state["wins"] / self.state["total_trades"]) * 100 if self.state["total_trades"] > 0 else 0
 
                 msg = (
@@ -122,7 +123,7 @@ class SMCIndependentTrader:
                     f"Strategi  : Liquidity Sweep + ATR\n"
                     f"Modal In  : Rp {self.state['balance']:,.0f}\n"
                     f"Harga In  : Rp {current_price:,.0f}\n"
-                    f"Target TP : Rp {tp_price:,.0f} (+2 ATR)\n"
+                    f"Target TP : Rp {tp_price:,.0f} (+3 ATR)\n" # DIUBAH MENJADI +3 ATR
                     f"Batas SL  : Rp {sl_price:,.0f} (-1.5 ATR)"
                 )
                 return msg
@@ -188,12 +189,12 @@ async def main():
         atr_idr   = df['atr'].iloc[curr_idx] * usd_idr
         
         sl_bullish = harga_idr - (1.5 * atr_idr)
-        tp_bullish = harga_idr + (2.0 * atr_idr)
+        tp_bullish = harga_idr + (3.0 * atr_idr)
         
         pt_msg = trader.process_signal(
             signal_type=signal_type,
             current_price=harga_idr,
-            current_time=now_wib.strftime('%Y-%m-%d %H:%M:%S'),
+            current_time=now_w_ib_str := now_wib.strftime('%Y-%m-%d %H:%M:%S'),
             sl_price=sl_bullish,
             tp_price=tp_bullish
         )
@@ -204,7 +205,8 @@ async def main():
         else:
             print("  — SMC ATR ETH-IDR: Tidak ada aksi (Posisi aktif / Sinyal nihil)")
 
-### 3. Ringkasan Perubahan Utama:
-* **ATR Ditambahkan:** Sekarang bot SMC menghitung indikator ATR (14 periode) yang diselaraskan dengan skrip teknikal.
-* **TP/SL Dinamis:** Target TP dipasang di `+2.0 ATR` dan Stop Loss di `-1.5 ATR`.
-* **State File Dipisah:** Menggunakan `paper_trading_smc.json` agar file penyimpanannya independen dan tidak bentrok dengan data bot teknikal.
+    except Exception as e:
+        print(f"Error pada paper trader SMC: {e}")
+
+if __name__ == '__main__':
+    asyncio.run(main())
