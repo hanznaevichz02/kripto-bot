@@ -155,7 +155,7 @@ class TechnicalPaperTrader:
                     f"Strategi  : Golden Cross EMA 9/21 + Vol Spike\n"
                     f"Modal In  : Rp {available_cash:,.0f} (All-in)\n"
                     f"Harga In  : Rp {current_price:,.0f}\n"
-                    f"Target TP : Rp {tp_price:,.0f} (+2 ATR)\n"
+                    f"Target TP : Rp {tp_price:,.0f} (+3 ATR)\n"
                     f"Batas SL  : Rp {sl_price:,.0f} (-1.5 ATR)"
                 )
                 return msg
@@ -176,7 +176,7 @@ async def main():
         print(f"Gagal memuat market: {e}")
         return
 
-    bot        = Bot(token=TOKEN)
+    bot         = Bot(token=TOKEN)
     usd_idr    = get_usd_to_idr()
     now_wib    = datetime.now(timezone.utc) + timedelta(hours=7)
     
@@ -212,7 +212,7 @@ async def main():
         atr_idr   = curr['atr'] * usd_idr
         
         sl_bullish = harga_idr - (1.5 * atr_idr)
-        tp_bullish = harga_idr + (2.0 * atr_idr)
+        tp_bullish = harga_idr + (3.0 * atr_idr)  # Diubah ke 3.0 ATR
         
         # 2. Kondisi Golden Cross & Sudut Kemiringan EMA
         slope_ema9   = abs(df['ema9'].iloc[curr_idx] - df['ema9'].iloc[prev_idx]) / df['ema9'].iloc[prev_idx] * 100
