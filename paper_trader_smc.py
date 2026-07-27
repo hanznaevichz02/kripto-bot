@@ -49,7 +49,7 @@ def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f, indent=4)
 
-def get_usd_to_idr():
+def get_usd_idr():
     try:
         response = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
         return float(response.json()['ticker']['last'])
