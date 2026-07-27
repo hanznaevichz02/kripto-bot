@@ -49,7 +49,6 @@ def save_state(state):
 # --- FUNGSI HELPER ---
 def get_usd_idr() -> float:
     try:
-        # Menarik harga USDT-IDR langsung dari market kripto
         r = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
         return float(r.json()['ticker']['last'])
     except Exception:
@@ -196,7 +195,7 @@ async def main():
         return
 
     bot     = Bot(token=TOKEN)
-    usd_idr = get_usd_to_idr()
+    usd_idr = get_usd_idr()
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
     
     pt_hybrid = HybridPaperTrader()
