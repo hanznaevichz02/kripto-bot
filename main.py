@@ -2,6 +2,7 @@
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
    Versi: 3.4 (Swing 4H Risk Management & SMC Engine)
+   SPOT MARKET
 ========================================================
 
    Sumber Data:
