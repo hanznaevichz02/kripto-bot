@@ -1,24 +1,24 @@
 """
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
-   Versi: 3.4 (Swing 4H Risk Management & SMC Engine)
+   Versi: 3.4.1 (Swing 4H Risk Management & SMC Engine)
    SPOT MARKET
 ========================================================
 
    Sumber Data:
-     - KuCoin (OHLCV Spot & Volume)   via ccxt
-     - Fear & Greed Index             via alternative.me (GRATIS)
-     - Funding Rate                   via KuCoin Futures (GRATIS)
-     - Kurs USD/IDR                   via exchangerate-api.com (GRATIS)
+     - KuCoin (OHLCV Spot & Volume)    via ccxt
+     - Fear & Greed Index              via alternative.me (GRATIS)
+     - Funding Rate                    via KuCoin Futures (GRATIS)
+     - Kurs USD/IDR                    via exchangerate-api.com (GRATIS)
   
    Konsep Utama:
-     - Liquidity Sweep  → Whale nyapu stop loss ritel (1H Trigger)
-     - Volume Absorption→ Akumulasi/distribusi diam-diam
-     - Order Block      → Zona order besar (dengan filter mitigasi)
-     - Swing Structure  → Batas SL/TP presisi berbasis Swing Low/High (4H)
-     - CVD (Delta Vol)  → Arah akumulasi/distribusi dari rasio body
-     - Funding Rate     → Sentimen pasar futures
-     - Fear & Greed     → Sentimen makro pasar kripto
+     - Liquidity Sweep   → Whale nyapu stop loss ritel (1H Trigger)
+     - Volume Absorption → Akumulasi/distribusi diam-diam
+     - Order Block       → Zona order besar (dengan filter mitigasi)
+     - Swing Structure   → Batas SL/TP presisi berbasis Swing Low/High (4H)
+     - CVD (Delta Vol)   → Arah akumulasi/distribusi dari rasio body
+     - Funding Rate      → Sentimen pasar futures
+     - Fear & Greed      → Sentimen makro pasar kripto
 ========================================================
 """
 
@@ -213,7 +213,7 @@ def analisa(
     swing_high_idr = swing_4h['swing_high'] * usd_idr
     swing_low_idr  = swing_4h['swing_low'] * usd_idr
 
-    # Skenario Buy (Bullish)
+    # Skenario Buy (Bullish) — TP diatas, SL dibawah
     sl_buy = swing_low_idr - (0.5 * atr_idr)
     tp_buy = swing_high_idr
     if tp_buy <= harga_idr * 1.015:
@@ -318,16 +318,13 @@ def format_pesan(symbol: str, s: dict) -> str:
         z = s['ob_bear_zone']
         ob_info = f"\n*Area Order Block Bearish:*\n  {format_rp(z['low_idr'])} — {format_rp(z['high_idr'])}\n"
 
-    # ============================================================
-    # PERUBAHAN LOGIKA KHUSUS SPOT (Pemisahan Setup Beli vs Jual)
-    # ============================================================
     is_bullish = tipe in ['BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT']
 
     if is_bullish:
         rm_text = (
             f"*Saran Manajemen Risiko (Spot):*\n"
-            f"  • SL (Batas Rugi) : {format_rp(s['sl_buy'])}\n"
-            f"  • TP (Ambil Cuan) : {format_rp(s['tp_buy'])}"
+            f"  • TP (Ambil Cuan) : {format_rp(s['tp_buy'])}\n"
+            f"  • SL (Batas Rugi) : {format_rp(s['sl_buy'])}"
         )
     else:
         rm_text = (
