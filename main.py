@@ -1,7 +1,7 @@
 """
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
-   Versi: 3.6.1 (Bullish-Only Filter & Top-2 Prospek)
+   Versi: 3.7.0 (Bullish Filter + Portfolio Dump Alert)
    SPOT MARKET
 ========================================================
 
@@ -10,15 +10,6 @@
      - Fear & Greed Index               via alternative.me (GRATIS)
      - Funding Rate                     via KuCoin Futures (GRATIS)
      - Kurs USD/IDR                     via Indodax API (USDT-IDR Real-time)
-  
-   Konsep Utama:
-     - Liquidity Sweep   → Bandar sapu stop loss ritel (1H Trigger)
-     - Volume Absorption → Akumulasi/distribusi diam-diam
-     - Order Block       → Zona order besar (dengan filter mitigasi)
-     - Swing Structure   → Batas SL/TP presisi berbasis Swing Low/High (4H)
-     - CVD (Delta Vol)   → Arah akumulasi/distribusi dari rasio body
-     - Funding Rate      → Sentimen pasar futures
-     - Fear & Greed      → Sentimen makro pasar kripto
 ========================================================
 """
 
@@ -69,7 +60,6 @@ BULLISH_SIGNAL_TYPES = {'BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT'}
 
 def get_usd_idr() -> float:
     try:
-        # Menarik harga USDT-IDR langsung dari market kripto
         r = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
         return float(r.json()['ticker']['last'])
     except Exception:
@@ -272,7 +262,7 @@ DESKRIPSI = {
     'BEAR_BREAKOUT': ("BREAKDOWN VOLUME", "Modal besar jebol lantai ke bawah."),
 }
 
-def format_pesan(symbol: str, s: dict) -> str:
+def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
     tipe, harga = s['tipe'], format_rp(s['harga'])
     judul, ket = DESKRIPSI.get(tipe, (tipe, ""))
     
@@ -292,8 +282,10 @@ def format_pesan(symbol: str, s: dict) -> str:
         rm_label_1, rm_val_1 = "Serok Bawah", format_rp(s['tp_sell'])
         rm_label_2, rm_val_2 = "Invalidasi ", format_rp(s['sl_sell'])
 
+    header = f"🚨 *WARNING PORTOFOLIO — {symbol}*" if is_porto_alert else f"⚡ *QUANT SIGNAL — {symbol}*"
+
     pesan = (
-        f"⚡ *QUANT SIGNAL — {symbol}* {s['strength']}\n"
+        f"{header} {s['strength']}\n"
         f"```\n"
         f"[ 1. SIGNAL DETECTION ]\n"
         f"  • Trigger : {judul}\n"
@@ -309,7 +301,7 @@ def format_pesan(symbol: str, s: dict) -> str:
         f"[ 3. RISK MANAGEMENT ]\n"
         f"  • {rm_label_1} : {rm_val_1}\n"
         f"  • {rm_label_2} : {rm_val_2}\n"
-        f"  • Skorsing : {s['skor']:.2f} pts\n"
+        f"  • Skorsing : {s.get('skor', 0.0):.2f} pts\n"
         f"```\n"
         f"🎯 *ACTION PLAN :* {s['aksi']}\n"
         f"💡 *Insight    :* {ket}"
@@ -435,8 +427,11 @@ async def main():
             hasil = analisa(df_1h, df_4h, usd_idr, funding_rate, fear_greed, is_weekend)
 
             if hasil:
-                # --- FILTER UTAMA: Hanya proses sinyal BELI / BULLISH ---
-                if hasil['tipe'] in BULLISH_SIGNAL_TYPES:
+                is_bullish = hasil['tipe'] in BULLISH_SIGNAL_TYPES
+                is_porto   = symbol in PORTFOLIO
+
+                if is_bullish:
+                    # Sinyal Beli (Bebas Porto/Non-Porto) -> Masuk antrean penilaian Top 2
                     skor = 0
                     if hasil.get('vol_ultra'):
                         skor += 5
@@ -445,7 +440,6 @@ async def main():
                     
                     skor += hasil['vol_ratio']
                     
-                    # Tambah poin jika aligned dengan Tren 4H Bullish
                     if hasil['trend_4h'] == 'BULLISH':
                         skor += 3
 
@@ -453,8 +447,16 @@ async def main():
                     hasil['skor'] = skor
                     kumpulan_sinyal.append(hasil)
                     print(f"  🎯 Kandidat BELI ditemukan: {symbol} ({hasil['tipe']}) | Skor: {skor:.2f}")
+
+                elif is_porto:
+                    # PERKECUALIAN PORTOFOLIO: Kirim Peringatan Dump/Jual langsung ke Telegram!
+                    print(f"  🚨 WARNING PORTOFOLIO: {symbol} terdeteksi sinyal JUAL/DUMP ({hasil['tipe']})!")
+                    pesan_warning = format_pesan(symbol, hasil, is_porto_alert=True)
+                    await bot.send_message(chat_id=CHAT_ID, text=pesan_warning, parse_mode='Markdown')
+
                 else:
-                    print(f"  ⚠️ {symbol}: Sinyal {hasil['tipe']} (Jual/Bearish) diabaikan.")
+                    # Koin non-portofolio dengan sinyal Jual/Bearish -> Abaikan
+                    print(f"  ⚠️ {symbol}: Sinyal {hasil['tipe']} (Jual/Bearish) diabaikan (Bukan Porto).")
             else:
                 print(f"  — {symbol}: tidak ada sinyal")
 
