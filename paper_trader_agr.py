@@ -47,12 +47,13 @@ def save_state(state):
         json.dump(state, f, indent=4)
 
 # --- FUNGSI HELPER ---
-def get_usd_to_idr():
+def get_usd_idr() -> float:
     try:
-        response = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
-        return response.json()['rates']['IDR']
+        # Menarik harga USDT-IDR langsung dari market kripto
+        r = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
+        return float(r.json()['ticker']['last'])
     except Exception:
-        return 16400.0
+        return 18000.0
 
 def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
     """
