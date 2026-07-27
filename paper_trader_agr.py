@@ -1,0 +1,309 @@
+"""
+========================================================
+   KRIPTO BOT — Hybrid Agressive Edition (Paper Trading)
+   Strategi: (Tech Golden Cross / Pullback) OR (SMC Sweep)
+   Target  : Khusus ETH-IDR (Fair Head-to-Head Arena)
+   Market  : MURNI SPOT 100%
+========================================================
+"""
+
+import os
+import asyncio
+import json
+from datetime import datetime, timedelta, timezone
+import ccxt
+import pandas as pd
+import requests
+from telegram import Bot
+
+# --- KONFIGURASI ---
+TOKEN               = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID             = os.getenv("TELEGRAM_CHAT_ID")
+
+VOL_MULTIPLIER      = 2.0
+INITIAL_CAPITAL_IDR = 1_000_000.0
+STATE_FILE          = "paper_trading_hybrid.json"
+TARGET_SYMBOL       = "ETH/USDT"
+TARGET_PAIR_NAME    = "ETH-IDR"
+FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68
+
+# --- MANAJEMEN STATE PAPER TRADING ---
+def load_state():
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        "cash_idr": INITIAL_CAPITAL_IDR,
+        "active_position": None, 
+        "history": [],
+        "stats": {"total_trades": 0, "wins": 0, "losses": 0, "total_pnl_idr": 0.0}
+    }
+
+def save_state(state):
+    with open(STATE_FILE, 'w') as f:
+        json.dump(state, f, indent=4)
+
+# --- FUNGSI HELPER ---
+def get_usd_to_idr():
+    try:
+        response = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
+        return response.json()['rates']['IDR']
+    except Exception:
+        return 16400.0
+
+def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
+    """
+    Mencari Swing Low & Swing High dari N candle 4H terakhir.
+    """
+    swing_low = df_4h['low'].iloc[-window-1:-1].min()
+    swing_high = df_4h['high'].iloc[-window-1:-1].max()
+    return {'swing_high': swing_high, 'swing_low': swing_low}
+
+# --- KELAS PAPER TRADER HYBRID ---
+class HybridPaperTrader:
+    def __init__(self):
+        self.state = load_state()
+
+    def process(self, signal_type, current_price, current_time, sl_price, tp_price, trigger_source):
+        # 1. Cek Posisi Aktif (Exit Logic: TP / SL / Death Cross Tech)
+        pos = self.state.get("active_position")
+        if pos:
+            entry_p = pos["entry_price_idr"]
+            amount  = pos["amount"]
+            sl      = pos["sl"]
+            tp      = pos["tp"]
+            strat_name = pos.get("strategy", "HYBRID")
+            
+            is_win        = current_price >= tp
+            is_loss       = current_price <= sl
+            is_death_exit = signal_type == "DEATH_CROSS"  # Exit darurat jika tren patah total
+            
+            if is_win or is_loss or is_death_exit:
+                if is_win:
+                    exit_reason = "TAKE PROFIT (SWING 4H) 🎯"
+                elif is_loss:
+                    exit_reason = "STOP LOSS (SWING 4H) 🛑"
+                else:
+                    exit_reason = "DEATH CROSS EXIT ⚠️"
+
+                gross_final_val = current_price * amount
+                fee_tax_amount  = gross_final_val * FEE_TAX_RATE
+                net_final_val   = gross_final_val - fee_tax_amount
+                
+                modal_val       = entry_p * amount
+                pnl_val         = net_final_val - modal_val
+                pnl_pct         = (pnl_val / modal_val) * 100
+                status          = "WIN" if pnl_val > 0 else "LOSS"
+                
+                # Update kas
+                self.state["cash_idr"] += net_final_val
+                
+                # Rekap history
+                trade_record = {
+                    "pair": TARGET_PAIR_NAME,
+                    "strategy": strat_name,
+                    "entry_price": entry_p,
+                    "exit_price": current_price,
+                    "pnl_pct": round(pnl_pct, 2),
+                    "pnl_idr": round(pnl_val, 2),
+                    "status": status,
+                    "entry_time": pos["entry_time"],
+                    "exit_time": current_time
+                }
+                self.state["history"].append(trade_record)
+                
+                # Update stats
+                self.state["stats"]["total_trades"] += 1
+                if status == "WIN":
+                    self.state["stats"]["wins"] += 1
+                else:
+                    self.state["stats"]["losses"] += 1
+                self.state["stats"]["total_pnl_idr"] += round(pnl_val, 2)
+                
+                # Bersihkan posisi aktif
+                self.state["active_position"] = None
+                save_state(self.state)
+                
+                # Susun pesan notifikasi
+                stats    = self.state["stats"]
+                win_rate = (stats["wins"] / stats["total_trades"]) * 100 if stats["total_trades"] > 0 else 0
+                
+                msg = (
+                    f"🧪 *[PAPER TRADING - HYBRID EXIT]* {TARGET_PAIR_NAME}\n"
+                    f"──────────────────────────────\n"
+                    f"Alasan    : {exit_reason}\n"
+                    f"Strategi  : {strat_name}\n"
+                    f"Harga In  : Rp {entry_p:,.0f}\n"
+                    f"Harga Out : Rp {current_price:,.0f}\n"
+                    f"P/L       : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n\n"
+                    f"📊 *REKAP TOTAL HYBRID*:\n"
+                    f"• Total Trade : {stats['total_trades']}x\n"
+                    f"• Win / Loss  : {stats['wins']} Win / {stats['losses']} Loss\n"
+                    f"• Win Rate    : {win_rate:.1f}%\n"
+                    f"• Total P/L   : Rp {stats['total_pnl_idr']:+,.0f}\n"
+                    f"• Sisa Kas    : Rp {self.state['cash_idr']:,.0f}"
+                )
+                return msg
+            return None
+
+        # 2. Jika Tidak Ada Posisi Aktif, Cari Sinyal Masuk (Gabungan Tech & SMC)
+        if not pos and signal_type == "BELI":
+            available_cash = self.state["cash_idr"]
+            if available_cash >= 100_000:  # Batas minimal alokasi
+                amount = available_cash / current_price
+                
+                self.state["active_position"] = {
+                    "entry_price_idr": current_price,
+                    "amount": amount,
+                    "sl": sl_price,
+                    "tp": tp_price,
+                    "type": "BELI",
+                    "strategy": f"Hybrid ({trigger_source}) + Swing 4H",
+                    "entry_time": current_time
+                }
+                self.state["cash_idr"] = 0.0  # Spot Murni
+                save_state(self.state)
+                
+                msg = (
+                    f"🧪 *[PAPER TRADING - HYBRID ENTRY]* {TARGET_PAIR_NAME}\n"
+                    f"──────────────────────────────\n"
+                    f"Pemicu    : {trigger_source}\n"
+                    f"Modal In  : Rp {available_cash:,.0f} (All-in Spot)\n"
+                    f"Harga In  : Rp {current_price:,.0f}\n"
+                    f"Target TP : Rp {tp_price:,.0f} (Swing High 4H)\n"
+                    f"Batas SL  : Rp {sl_price:,.0f} (Swing Low 4H)"
+                )
+                return msg
+        return None
+
+# --- MAIN EXECUTOR ---
+async def main():
+    print("DEBUG: Menjalankan Paper Trader Hybrid Gercep (ETH-IDR Spot)...")
+    exchange = ccxt.kucoin({
+        'enableRateLimit': True,
+        'options': {'defaultType': 'spot'},
+        'timeout': 30000 
+    })
+    
+    try:
+        exchange.load_markets()
+    except Exception as e:
+        print(f"Gagal memuat market: {e}")
+        return
+
+    bot     = Bot(token=TOKEN)
+    usd_idr = get_usd_to_idr()
+    now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
+    
+    pt_hybrid = HybridPaperTrader()
+    
+    try:
+        # Pull Data Multi-Timeframe: 1H & 4H
+        bars_1h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='1h', limit=50)
+        bars_4h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='4h', limit=30)
+        
+        if len(bars_1h) < 40 or len(bars_4h) < 15:
+            return
+            
+        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        
+        # --- 1. INDIKATOR TEKNIKAL ---
+        df_1h['ema9']  = df_1h['close'].ewm(span=9, adjust=False).mean()
+        df_1h['ema21'] = df_1h['close'].ewm(span=21, adjust=False).mean()
+        
+        tr0 = df_1h['high'] - df_1h['low']
+        tr1 = (df_1h['high'] - df_1h['close'].shift(1)).abs()
+        tr2 = (df_1h['low']  - df_1h['close'].shift(1)).abs()
+        df_1h['tr']  = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1)
+        df_1h['atr'] = df_1h['tr'].rolling(window=14).mean()
+        df_1h['avg_vol'] = df_1h['volume'].rolling(window=3).mean().shift(1)
+        
+        curr_idx = -2
+        prev_idx = -3
+        curr = df_1h.iloc[curr_idx]
+        
+        harga_idr = curr['close'] * usd_idr
+        atr_idr   = curr['atr'] * usd_idr
+        
+        # --- 2. INDIKATOR SMC (Liquidity Sweep) ---
+        body_size   = abs(curr['close'] - curr['open'])
+        lower_wick  = (curr['open'] - curr['low']) if curr['close'] >= curr['open'] else (curr['close'] - curr['low'])
+        total_range = curr['high'] - curr['low']
+        
+        is_long_wick = total_range > 0 and (lower_wick / total_range >= 0.35)
+        is_spike_vol = curr['volume'] > (df_1h['avg_vol'].iloc[curr_idx] * VOL_MULTIPLIER)
+        smc_sweep    = is_long_wick and is_spike_vol and (curr['close'] > curr['open'])
+        
+        # --- 3. INDIKATOR TECH (Golden Cross & Pullback) ---
+        slope_ema9     = abs(df_1h['ema9'].iloc[curr_idx] - df_1h['ema9'].iloc[prev_idx]) / df_1h['ema9'].iloc[prev_idx] * 100
+        is_sudut_tajam = slope_ema9 > 0.25 
+        
+        ema9_now   = df_1h['ema9'].iloc[curr_idx]
+        ema9_prev  = df_1h['ema9'].iloc[prev_idx]
+        ema21_now  = df_1h['ema21'].iloc[curr_idx]
+        ema21_prev = df_1h['ema21'].iloc[prev_idx]
+        
+        golden = (ema9_prev < ema21_prev) and (ema9_now > ema21_now) and is_spike_vol and is_sudut_tajam
+        
+        tren_bullish    = ema9_now > ema21_now
+        sentuh_ema21    = df_1h['low'].iloc[curr_idx] <= (ema21_now * 1.002)
+        tutup_hijau     = df_1h['close'].iloc[curr_idx] > df_1h['open'].iloc[curr_idx]
+        tutup_atas_ema9 = df_1h['close'].iloc[curr_idx] > ema9_now
+        vol_oke         = df_1h['volume'].iloc[curr_idx] > df_1h['avg_vol'].iloc[curr_idx]
+        pullback_bounce = tren_bullish and sentuh_ema21 and tutup_hijau and tutup_atas_ema9 and vol_oke
+
+        tech_signal = golden or pullback_bounce
+        death_signal = (ema9_prev > ema21_prev) and (ema9_now < ema21_now)
+
+        # --- 4. SWING 4H UNTUK SL & TP ---
+        swing = deteksi_swing_4h(df_4h, window=7)
+        swing_high_idr = swing['swing_high'] * usd_idr
+        swing_low_idr  = swing['swing_low'] * usd_idr
+        
+        sl_bullish = swing_low_idr - (0.5 * atr_idr)
+        tp_bullish = swing_high_idr
+        
+        if tp_bullish <= harga_idr * 1.015:
+            tp_bullish = harga_idr + (3.5 * atr_idr)
+        if sl_bullish >= harga_idr * 0.985:
+            sl_bullish = harga_idr - (1.8 * atr_idr)
+
+        # --- 5. LOGIKA HYBRID GERCEP (OR GATE) ---
+        signal_type = None
+        trigger_source = ""
+        
+        if tech_signal:
+            signal_type = "BELI"
+            trigger_source = "Technical (Golden/Pullback)"
+        elif smc_sweep:
+            signal_type = "BELI"
+            trigger_source = "SMC (Liquidity Sweep)"
+        elif death_signal:
+            signal_type = "DEATH_CROSS"
+            trigger_source = "Death Cross Exit"
+
+        # --- 6. EVALUASI PAPER TRADING ---
+        pt_msg = pt_hybrid.process(
+            signal_type=signal_type,
+            current_price=harga_idr,
+            current_time=now_wib.strftime('%Y-%m-%d %H:%M:%S'),
+            sl_price=sl_bullish,
+            tp_price=tp_bullish,
+            trigger_source=trigger_source
+        )
+        
+        if pt_msg:
+            await bot.send_message(chat_id=CHAT_ID, text=pt_msg, parse_mode='Markdown')
+            print("  🧪 Notif Simulasi Hybrid ETH-IDR Terkirim")
+        else:
+            print("  — Hybrid ETH-IDR: Tidak ada aksi (Posisi aktif / Sinyal nihil)")
+
+    except Exception as e:
+        print(f"Error pada paper trader hybrid: {e}")
+
+if __name__ == '__main__':
+    asyncio.run(main())
