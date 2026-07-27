@@ -49,10 +49,10 @@ def save_state(state):
 # --- FUNGSI HELPER ---
 def get_usd_to_idr():
     try:
-        response = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
-        return response.json()['rates']['IDR']
+        response = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
+        return float(response.json()['ticker']['last'])
     except Exception:
-        return 16400.0
+        return 18000.0
 
 def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
     """
