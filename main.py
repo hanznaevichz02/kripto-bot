@@ -9,7 +9,7 @@
      - KuCoin (OHLCV Spot & Volume)    via ccxt
      - Fear & Greed Index              via alternative.me (GRATIS)
      - Funding Rate                    via KuCoin Futures (GRATIS)
-     - Kurs USD/IDR                    via exchangerate-api.com (GRATIS)
+     - Kurs USD/IDR                    via Indodax API (USDT-IDR Real-time)
   
    Konsep Utama:
      - Liquidity Sweep   → Whale nyapu stop loss ritel (1H Trigger)
