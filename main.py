@@ -4,7 +4,6 @@
    Versi: 3.6.1 (Bullish-Only Filter & Top-2 Prospek)
    SPOT MARKET
 ========================================================
-"""
 
    Sumber Data:
      - KuCoin (OHLCV Spot & Volume)     via ccxt
@@ -259,7 +258,7 @@ def analisa(
     return None
 
 # ============================================================
-# FORMAT PESAN TELEGRAM (DEEP DETAILED TERMINAL STYLE)
+# FORMAT PESAN TELEGRAM
 # ============================================================
 
 DESKRIPSI = {
@@ -467,7 +466,7 @@ async def main():
     # --- PILIH TOP 2 PROSPEK BELI TERBAIK ---
     if kumpulan_sinyal:
         kumpulan_sinyal.sort(key=lambda x: x['skor'], reverse=True)
-        top_prospek = kumpulan_sinyal[:2]  # Ambil tepat 2 koin terbaik
+        top_prospek = kumpulan_sinyal[:2]
         
         print(f"\n📢 Mengirim {len(top_prospek)} sinyal BELI teratas dari {len(kumpulan_sinyal)} kandidat...")
         
