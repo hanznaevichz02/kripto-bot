@@ -66,10 +66,11 @@ JAM_LAPORAN = {9, 14, 20}
 
 def get_usd_idr() -> float:
     try:
-        r = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
-        return float(r.json()['rates']['IDR'])
+        # Menarik harga USDT-IDR langsung dari market kripto
+        r = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
+        return float(r.json()['ticker']['last'])
     except Exception:
-        return 16_400.0
+        return 18000.0
 
 def get_fear_greed() -> dict:
     try:
