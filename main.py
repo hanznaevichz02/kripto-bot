@@ -1,7 +1,7 @@
 """
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
-   Versi: 3.5.0 (Elite Terminal Notification Style)
+   Versi: 3.6.0 (Deep Signal Breakdown & Top-2 Prospek)
    SPOT MARKET
 ========================================================
 
@@ -66,14 +66,14 @@ JAM_LAPORAN = {9, 14, 20}
 
 def get_usd_idr() -> float:
     try:
-        r = requests.get("[https://api.exchangerate-api.com/v4/latest/USD](https://api.exchangerate-api.com/v4/latest/USD)", timeout=5)
+        r = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
         return float(r.json()['rates']['IDR'])
     except Exception:
         return 16_400.0
 
 def get_fear_greed() -> dict:
     try:
-        r = requests.get("[https://api.alternative.me/fng/?limit=1](https://api.alternative.me/fng/?limit=1)", timeout=5)
+        r = requests.get("https://api.alternative.me/fng/?limit=1", timeout=5)
         d = r.json()['data'][0]
         return {'value': int(d['value']), 'label': d['value_classification']}
     except Exception:
@@ -111,7 +111,6 @@ def hitung_volume_delta(df: pd.DataFrame) -> pd.Series:
     return delta
 
 def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
-    """Mencari area Swing Low dan Swing High dari struktur 4H."""
     swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
     swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
     return {'swing_high': swing_high, 'swing_low': swing_low}
@@ -156,12 +155,11 @@ def analisa(
     if len(df_1h) < 50 or len(df_4h) < 20:
         return None
 
-    # Trend Macro 4H
     df_4h['ema50'] = df_4h['close'].ewm(span=50, adjust=False).mean()
     trend_4h_bull  = df_4h['close'].iloc[-1] > df_4h['ema50'].iloc[-1]
 
-    c = df_1h.iloc[-2]  # Candle closed terakhir
-    p = df_1h.iloc[-3]  # Candle sebelumnya
+    c = df_1h.iloc[-2]
+    p = df_1h.iloc[-3]
 
     harga_idr = c['close'] * usd_idr
     atr_idr   = hitung_atr(df_1h) * usd_idr
@@ -181,7 +179,6 @@ def analisa(
     deltas    = hitung_volume_delta(df_1h)
     cvd_delta = round(deltas.iloc[-2], 4)
     cvd_naik  = cvd_delta > 0
-    cvd_turun = cvd_delta < 0
 
     ob = deteksi_order_block(df_1h)
 
@@ -208,12 +205,10 @@ def analisa(
     bull_breakout = (c['close'] > c['open']) and (body_size > avg_range * 1.0) and vol_spike
     bear_breakout = (c['close'] < c['open']) and (body_size > avg_range * 1.0) and vol_spike
 
-    # HITUNG SL & TP DINAMIS BERDASARKAN SWING 4H
     swing_4h = deteksi_swing_4h(df_4h, window=7)
     swing_high_idr = swing_4h['swing_high'] * usd_idr
     swing_low_idr  = swing_4h['swing_low'] * usd_idr
 
-    # Skenario Buy (Bullish) — TP diatas, SL dibawah
     sl_buy = swing_low_idr - (0.5 * atr_idr)
     tp_buy = swing_high_idr
     if tp_buy <= harga_idr * 1.015:
@@ -221,7 +216,6 @@ def analisa(
     if sl_buy >= harga_idr * 0.985:
         sl_buy = harga_idr - (1.8 * atr_idr)
 
-    # Skenario Sell (Bearish)
     sl_sell = swing_high_idr + (0.5 * atr_idr)
     tp_sell = swing_low_idr
     if tp_sell >= harga_idr * 0.985:
@@ -231,48 +225,36 @@ def analisa(
 
     base = {
         'harga': harga_idr, 'vol_ratio': vol_ratio,
-        'cvd_delta': cvd_delta, 'cvd_naik': cvd_naik, 'cvd_turun': cvd_turun,
+        'cvd_delta': cvd_delta, 'cvd_naik': cvd_naik,
         'trend_4h': 'BULLISH' if trend_4h_bull else 'BEARISH',
         'funding_rate': funding_rate, 'fear_greed': fear_greed,
         'is_weekend': is_weekend, 'vol_ultra': vol_ultra,
-        'dekat_bull_ob': dekat_bull_ob, 'dekat_bear_ob': dekat_bear_ob,
-        'ob_bull_zone': ob['bullish_ob'], 'ob_bear_zone': ob['bearish_ob'],
         'sl_buy': sl_buy, 'tp_buy': tp_buy,
         'sl_sell': sl_sell, 'tp_sell': tp_sell,
     }
 
-    # 1. SWEEP (Reversal Diskon - Paling Valid untuk Entry Spot SMC) 
     if bull_sweep:
-        return {**base, 'tipe': 'BULL_SWEEP', 'aksi': '🟢 GAS BELI (ENTRY DISKON)', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
-    
+        return {**base, 'tipe': 'BULL_SWEEP', 'aksi': '🟢 BELI / ENTRY DISKON (Sapu Bawah)', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
     if bear_sweep:
-        return {**base, 'tipe': 'BEAR_SWEEP', 'aksi': '🔴 GAS EXIT / TAKE PROFIT', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
-
-    # 2. ORDER BLOCK (Zona Demand / Supply)
+        return {**base, 'tipe': 'BEAR_SWEEP', 'aksi': '🔴 JUAL / TAKE PROFIT (Awas Trap)', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
     if dekat_bull_ob and vol_spike:
-        return {**base, 'tipe': 'BULL_OB', 'aksi': '🟢 ZONA BELI BANDAR', 'strength': '🔥🔥'}
-    
+        return {**base, 'tipe': 'BULL_OB', 'aksi': '🟢 BELI (Antri Limit di Demand)', 'strength': '🔥🔥'}
     if dekat_bear_ob and vol_spike:
-        return {**base, 'tipe': 'BEAR_OB', 'aksi': '🔴 ZONA JUAL BANDAR', 'strength': '🔥🔥'}
-
-    # 3. ABSORPTION (Akumulasi / Distribusi Volume Meledak Spread Sempit)
+        return {**base, 'tipe': 'BEAR_OB', 'aksi': '⏳ WAIT & SEE / CASH OUT', 'strength': '🔥🔥'}
     if is_absorption:
         if c['close'] >= c['open']:
-            return {**base, 'tipe': 'AKUMULASI', 'aksi': '🟡 CICIL BELI (DCA)', 'strength': '🔥'}
+            return {**base, 'tipe': 'AKUMULASI', 'aksi': '🟢 CICIL BELI (DCA Santai)', 'strength': '🔥'}
         else:
-            return {**base, 'tipe': 'DISTRIBUSI', 'aksi': '⚠️ HINDARI / AMBIL UNTUNG', 'strength': '🔥'}
-
-    # 4. BREAKOUT (Jangan Langsung Hantam Beli - Tunggu Retest!)
+            return {**base, 'tipe': 'DISTRIBUSI', 'aksi': '🔴 AMANKAN CASH / SELL', 'strength': '🔥'}
     if bull_breakout:
-        return {**base, 'tipe': 'BULL_BREAKOUT', 'aksi': '⏳ PANTAU (WAIT RETEST)', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
-    
+        return {**base, 'tipe': 'BULL_BREAKOUT', 'aksi': '🟢 FOLLOW TREND (Breakout)', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
     if bear_breakout:
-        return {**base, 'tipe': 'BEAR_BREAKOUT', 'aksi': '🚨 BAHAYA (POTENSI DUMP)', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
+        return {**base, 'tipe': 'BEAR_BREAKOUT', 'aksi': '⏳ TUNGGU DI BAWAH (Wait Drop)', 'strength': '🔥🔥🔥' if vol_ultra else '🔥🔥'}
 
     return None
 
 # ============================================================
-# FORMAT PESAN TELEGRAM (ELITE TERMINAL STYLE)
+# FORMAT PESAN TELEGRAM (DEEP DETAILED TERMINAL STYLE)
 # ============================================================
 
 DESKRIPSI = {
@@ -286,21 +268,9 @@ DESKRIPSI = {
     'BEAR_BREAKOUT': ("BREAKDOWN VOLUME", "Modal besar jebol lantai ke bawah."),
 }
 
-AKSI_MAP = {
-    'BULL_SWEEP':    "BELI / ENTRY SPOT (Sapu Bawah)",
-    'BEAR_SWEEP':    "JUAL / TAKE PROFIT (Awas Trap)",
-    'BULL_OB':       "BELI (Antri Limit di Demand)",
-    'BEAR_OB':       "WAIT & SEE / CASH OUT",
-    'AKUMULASI':     "CICIL BELI (DCA Santai)",
-    'DISTRIBUSI':    "AMANKAN CASH / SELL",
-    'BULL_BREAKOUT': "FOLLOW TREND (Breakout)",
-    'BEAR_BREAKOUT': "TUNGGU DI BAWAH (Wait Drop)",
-}
-
 def format_pesan(symbol: str, s: dict) -> str:
     tipe, harga = s['tipe'], format_rp(s['harga'])
     judul, ket = DESKRIPSI.get(tipe, (tipe, ""))
-    aksi_saran = AKSI_MAP.get(tipe, s['aksi'])
     
     fr = s['funding_rate']
     fr_str = "N/A"
@@ -312,31 +282,33 @@ def format_pesan(symbol: str, s: dict) -> str:
     is_bullish = tipe in ['BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT']
     
     if is_bullish:
-        rm_label_1, rm_val_1 = "TP (Cuan) ", format_rp(s['tp_buy'])
-        rm_label_2, rm_val_2 = "SL (Batas)", format_rp(s['sl_buy'])
+        rm_label_1, rm_val_1 = "TP (Target)", format_rp(s['tp_buy'])
+        rm_label_2, rm_val_2 = "SL (Batas) ", format_rp(s['sl_buy'])
     else:
         rm_label_1, rm_val_1 = "Serok Bawah", format_rp(s['tp_sell'])
-        rm_label_2, rm_val_2 = "Invalidasi", format_rp(s['sl_sell'])
-
-    now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
+        rm_label_2, rm_val_2 = "Invalidasi ", format_rp(s['sl_sell'])
 
     pesan = (
-        f"🎯 *SCANNER — {symbol}* {s['strength']}\n"
+        f"⚡ *QUANT SIGNAL — {symbol}* {s['strength']}\n"
         f"```\n"
-        f"STATUS  : {judul}\n"
-        f"HARGA   : {harga}\n"
-        f"TREN 4H : {s['trend_4h']}\n"
+        f"[ 1. SIGNAL DETECTION ]\n"
+        f"  • Trigger : {judul}\n"
+        f"  • Tren 4H : {s['trend_4h']}\n"
+        f"  • Harga   : {harga}\n"
         f"------------------------------\n"
-        f"VOLUME  : {s['vol_ratio']}x median" + (" (ULTRA)" if s.get('vol_ultra') else "") + "\n"
-        f"DELTA   : {'Beli Dominan' if s['cvd_naik'] else 'Jual Dominan'}\n"
-        f"FUNDING : {fr_str}\n"
-        f"MARKET  : {s['fear_greed']['value']} ({s['fear_greed']['label']})\n"
+        f"[ 2. MARKET METRICS ]\n"
+        f"  • Volume  : {s['vol_ratio']}x median" + (" (ULTRA)" if s.get('vol_ultra') else "") + "\n"
+        f"  • Delta   : {'Beli Dominan' if s['cvd_naik'] else 'Jual Dominan'}\n"
+        f"  • Funding : {fr_str}\n"
+        f"  • Market  : {s['fear_greed']['value']} ({s['fear_greed']['label']})\n"
         f"------------------------------\n"
-        f"{rm_label_1} : {rm_val_1}\n"
-        f"{rm_label_2} : {rm_val_2}\n"
+        f"[ 3. RISK MANAGEMENT ]\n"
+        f"  • {rm_label_1} : {rm_val_1}\n"
+        f"  • {rm_label_2} : {rm_val_2}\n"
+        f"  • Skorsing : {s['skor']:.2f} pts\n"
         f"```\n"
-        f"👉 *Aksi:* {aksi_saran}\n"
-        f"💡 *Catatan:* {ket}"
+        f"🎯 *ACTION PLAN :* {s['aksi']}\n"
+        f"💡 *Insight   :* {ket}"
     )
     return pesan
 
@@ -483,9 +455,10 @@ async def main():
 
         await asyncio.sleep(1.5)
 
+    # --- FILTER DIAMBIL TOP 2 PALING PROSPEK ---
     if kumpulan_sinyal:
         kumpulan_sinyal.sort(key=lambda x: x['skor'], reverse=True)
-        top_prospek = kumpulan_sinyal[:3]
+        top_prospek = kumpulan_sinyal[:2]  # Ambil tepat 2 koin terbaik
         
         print(f"\n📢 Mengirim {len(top_prospek)} sinyal teratas dari {len(kumpulan_sinyal)} kandidat...")
         
