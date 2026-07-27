@@ -1,8 +1,10 @@
+"""
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
    Versi: 3.6.1 (Bullish-Only Filter & Top-2 Prospek)
    SPOT MARKET
 ========================================================
+"""
 
    Sumber Data:
      - KuCoin (OHLCV Spot & Volume)     via ccxt
