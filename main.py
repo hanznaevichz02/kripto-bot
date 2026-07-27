@@ -30,6 +30,7 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 PORTFOLIO = {
     'BTC/USDT': {'buy_price_idr': 1_311_140_722, 'amount': 0.00076261},
     'ETH/USDT': {'buy_price_idr':    37_447_016, 'amount': 0.05060638},
+    'AVAX/USDT': {'buy_price_idr':    118_350, 'amount': 5.8661},
 }
 
 ASSET_LIST = [
