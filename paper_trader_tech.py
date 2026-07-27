@@ -198,7 +198,7 @@ async def main():
         return
 
     bot     = Bot(token=TOKEN)
-    usd_idr = get_usd_to_idr()
+    usd_idr = get_usd_idr()
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
     
     pt_tech = TechnicalPaperTrader()
