@@ -1,7 +1,7 @@
 """
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
-   Versi: 3.4.1 (Swing 4H Risk Management & SMC Engine)
+   Versi: 3.5.0 (Elite Terminal Notification Style)
    SPOT MARKET
 ========================================================
 
@@ -66,14 +66,14 @@ JAM_LAPORAN = {9, 14, 20}
 
 def get_usd_idr() -> float:
     try:
-        r = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
+        r = requests.get("[https://api.exchangerate-api.com/v4/latest/USD](https://api.exchangerate-api.com/v4/latest/USD)", timeout=5)
         return float(r.json()['rates']['IDR'])
     except Exception:
         return 16_400.0
 
 def get_fear_greed() -> dict:
     try:
-        r = requests.get("https://api.alternative.me/fng/?limit=1", timeout=5)
+        r = requests.get("[https://api.alternative.me/fng/?limit=1](https://api.alternative.me/fng/?limit=1)", timeout=5)
         d = r.json()['data'][0]
         return {'value': int(d['value']), 'label': d['value_classification']}
     except Exception:
@@ -272,87 +272,71 @@ def analisa(
     return None
 
 # ============================================================
-# FORMAT PESAN TELEGRAM
+# FORMAT PESAN TELEGRAM (ELITE TERMINAL STYLE)
 # ============================================================
 
 DESKRIPSI = {
-    'BULL_SWEEP':    ("🐋 HARGA AKAN NAIK", "Bandar sapu SL ritel, Harga akan LONCAT NAIK."),
-    'BEAR_SWEEP':    ("🚨 HARGA AKAN TURUN", "Bandar jebak ritel beli, Harga akan TURUN DRASTIS."),
-    'BULL_OB':       ("📦 ZONA BELI BANDAR", "Harga kembali ke zona beli bandar sebelumnya."),
-    'BEAR_OB':       ("📦 ZONA JUAL BANDAR", "Harga menyentuh zona jual bandar sebelumnya."),
-    'AKUMULASI':     ("🤫 BANDAR BELI DIAM-DIAM", "Volume meledak, spread sempit. BANDAR BELI barang pelan-pelan."),
-    'DISTRIBUSI':    ("⚠️ BANDAR JUAL DIAM-DIAM", "Volume meledak, spread sempit. BANDAR JUAL barang pelan-pelan."),
-    'BULL_BREAKOUT': ("🚀 BREAKOUT VOLUME", "Modal besar JEBOL ATAP ke atas."),
-    'BEAR_BREAKOUT': ("💥 BREAKDOWN VOLUME", "Modal besar JEBOL LANTAI ke bawah."),
+    'BULL_SWEEP':    ("HARGA AKAN NAIK", "Bandar sapu SL ritel, siap loncat naik."),
+    'BEAR_SWEEP':    ("HARGA AKAN TURUN", "Bandar jebak ritel beli, siap dump."),
+    'BULL_OB':       ("ZONA BELI BANDAR", "Harga kembali ke area demand institusi."),
+    'BEAR_OB':       ("ZONA JUAL BANDAR", "Harga menyentuh area supply institusi."),
+    'AKUMULASI':     ("AKUMULASI WHALE", "Volume besar, spread sempit (Nampung barang)."),
+    'DISTRIBUSI':    ("DISTRIBUSI WHALE", "Volume besar, spread sempit (Jualan barang)."),
+    'BULL_BREAKOUT': ("BREAKOUT VOLUME", "Modal besar jebol atap ke atas."),
+    'BEAR_BREAKOUT': ("BREAKDOWN VOLUME", "Modal besar jebol lantai ke bawah."),
 }
 
 AKSI_MAP = {
-    'BULL_SWEEP':    "🟢 BELI / ENTRY SPOT (Bandar Sapu Bawah)",
-    'BEAR_SWEEP':    "🔴 JUAL / TAKE PROFIT (Awas Bull Trap)",
-    'BULL_OB':       "🟢 BELI (Antri Limit Order di Zona Demand)",
-    'BEAR_OB':       "⏳ WAIT & SEE / JUAL (Lagi di Zona Supply)",
-    'AKUMULASI':     "🟢 CICIL BELI (Bandar Lagi Nampung)",
-    'DISTRIBUSI':    "🔴 JUAL / CASH OUT (Bandar Lagi Jualan)",
-    'BULL_BREAKOUT': "🟢 BELI / FOLLOW TREND (Breakout Volume)",
-    'BEAR_BREAKOUT': "⏳ TUNGGU DI BAWAH (Breakdown Volume)",
+    'BULL_SWEEP':    "BELI / ENTRY SPOT (Sapu Bawah)",
+    'BEAR_SWEEP':    "JUAL / TAKE PROFIT (Awas Trap)",
+    'BULL_OB':       "BELI (Antri Limit di Demand)",
+    'BEAR_OB':       "WAIT & SEE / CASH OUT",
+    'AKUMULASI':     "CICIL BELI (DCA Santai)",
+    'DISTRIBUSI':    "AMANKAN CASH / SELL",
+    'BULL_BREAKOUT': "FOLLOW TREND (Breakout)",
+    'BEAR_BREAKOUT': "TUNGGU DI BAWAH (Wait Drop)",
 }
 
 def format_pesan(symbol: str, s: dict) -> str:
     tipe, harga = s['tipe'], format_rp(s['harga'])
     judul, ket = DESKRIPSI.get(tipe, (tipe, ""))
-    aksi_saran = AKSI_MAP.get(tipe, f"⚡ {s['aksi']}")
-    cvd_arah = "↑ positif (dominan beli)" if s['cvd_naik'] else "↓ negatif (dominan jual)"
-
+    aksi_saran = AKSI_MAP.get(tipe, s['aksi'])
+    
     fr = s['funding_rate']
     fr_str = "N/A"
     if fr is not None:
-        if fr > 0.0005: fr_str = f"+{fr*100:.4f}% ⚠️ (rawan dump)"
-        elif fr < -0.0005: fr_str = f"{fr*100:.4f}% ⚡ (potensi squeeze)"
-        else: fr_str = f"{fr*100:+.4f}% (normal)"
-
-    ob_info = ""
-    if s.get('dekat_bull_ob') and s.get('ob_bull_zone'):
-        z = s['ob_bull_zone']
-        ob_info = f"\n*Area Order Block Bullish:*\n  {format_rp(z['low_idr'])} — {format_rp(z['high_idr'])}\n"
-    elif s.get('dekat_bear_ob') and s.get('ob_bear_zone'):
-        z = s['ob_bear_zone']
-        ob_info = f"\n*Area Order Block Bearish:*\n  {format_rp(z['low_idr'])} — {format_rp(z['high_idr'])}\n"
+        if fr > 0.0005: fr_str = f"+{fr*100:.4f}% (Rawan Dump)"
+        elif fr < -0.0005: fr_str = f"{fr*100:.4f}% (Squeeze)"
+        else: fr_str = f"{fr*100:+.4f}% (Normal)"
 
     is_bullish = tipe in ['BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT']
-
+    
     if is_bullish:
-        rm_text = (
-            f"*Saran Manajemen Risiko (Spot):*\n"
-            f"  • TP (Ambil Cuan) : {format_rp(s['tp_buy'])}\n"
-            f"  • SL (Batas Rugi) : {format_rp(s['sl_buy'])}"
-        )
+        rm_label_1, rm_val_1 = "TP (Cuan) ", format_rp(s['tp_buy'])
+        rm_label_2, rm_val_2 = "SL (Batas)", format_rp(s['sl_buy'])
     else:
-        rm_text = (
-            f"*Saran Eksekusi Spot (Amankan Cash):*\n"
-            f"  • Target Serok Ulang : {format_rp(s['tp_sell'])}\n"
-            f"  • Batal Turun (Invalidasi) : {format_rp(s['sl_sell'])}"
-        )
+        rm_label_1, rm_val_1 = "Serok Bawah", format_rp(s['tp_sell'])
+        rm_label_2, rm_val_2 = "Invalidasi", format_rp(s['sl_sell'])
+
+    now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
 
     pesan = (
-        f"*{judul}*\n"
-        f"*{symbol}* {s['strength']}\n"
-        f"\n"
-        f"Harga   : {harga}\n"
-        f"Tren 4H : *{s['trend_4h']}*\n"
-        f"\n"
-        f"👉 *Langkah : {aksi_saran}*\n"
-        f"\n"
-        f"*Jejak Whale:*\n"
-        f"  • {ket}\n"
-        f"  • Volume : *{s['vol_ratio']}x* median" + (" ⚡ ULTRA!" if s.get('vol_ultra') else "") + "\n"
-        f"  • Delta  : {cvd_arah}\n"
-        + ob_info +
-        f"\n"
-        f"*Sentimen Market:*\n"
-        f"  • Fear/Greed : {s['fear_greed']['value']} ({s['fear_greed']['label']})\n"
-        f"  • Funding    : {fr_str}\n"
-        f"\n"
-        f"{rm_text}"
+        f"🎯 *SCANNER — {symbol}* {s['strength']}\n"
+        f"```\n"
+        f"STATUS  : {judul}\n"
+        f"HARGA   : {harga}\n"
+        f"TREN 4H : {s['trend_4h']}\n"
+        f"------------------------------\n"
+        f"VOLUME  : {s['vol_ratio']}x median" + (" (ULTRA)" if s.get('vol_ultra') else "") + "\n"
+        f"DELTA   : {'Beli Dominan' if s['cvd_naik'] else 'Jual Dominan'}\n"
+        f"FUNDING : {fr_str}\n"
+        f"MARKET  : {s['fear_greed']['value']} ({s['fear_greed']['label']})\n"
+        f"------------------------------\n"
+        f"{rm_label_1} : {rm_val_1}\n"
+        f"{rm_label_2} : {rm_val_2}\n"
+        f"```\n"
+        f"👉 *Aksi:* {aksi_saran}\n"
+        f"💡 *Catatan:* {ket}"
     )
     return pesan
 
@@ -454,6 +438,8 @@ async def main():
           f"F&G={fear_greed['value']} ({fear_greed['label']}) | "
           f"Weekend={is_weekend}")
 
+    kumpulan_sinyal = []
+
     for symbol in ASSET_LIST:
         try:
             bars_1h = exchange.fetch_ohlcv(symbol, '1h', limit=60)
@@ -473,9 +459,22 @@ async def main():
             hasil = analisa(df_1h, df_4h, usd_idr, funding_rate, fear_greed, is_weekend)
 
             if hasil:
-                pesan = format_pesan(symbol, hasil)
-                await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
-                print(f"  ✅ Sinyal terkirim: {symbol} — {hasil['tipe']}")
+                skor = 0
+                if hasil.get('vol_ultra'):
+                    skor += 5
+                else:
+                    skor += 2
+                
+                skor += hasil['vol_ratio']
+                
+                if (hasil['trend_4h'] == 'BULLISH' and 'BULL' in hasil['tipe']) or \
+                   (hasil['trend_4h'] == 'BEARISH' and 'BEAR' in hasil['tipe']):
+                    skor += 3
+
+                hasil['symbol'] = symbol
+                hasil['skor'] = skor
+                kumpulan_sinyal.append(hasil)
+                print(f"  🎯 Kandidat ditemukan: {symbol} ({hasil['tipe']}) | Skor: {skor:.2f}")
             else:
                 print(f"  — {symbol}: tidak ada sinyal")
 
@@ -484,7 +483,19 @@ async def main():
 
         await asyncio.sleep(1.5)
 
-    # Laporan portofolio 3× sehari (Pukul 09:00, 14:00, 20:00 WIB)
+    if kumpulan_sinyal:
+        kumpulan_sinyal.sort(key=lambda x: x['skor'], reverse=True)
+        top_prospek = kumpulan_sinyal[:3]
+        
+        print(f"\n📢 Mengirim {len(top_prospek)} sinyal teratas dari {len(kumpulan_sinyal)} kandidat...")
+        
+        for item in top_prospek:
+            pesan = format_pesan(item['symbol'], item)
+            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+            print(f"  ✅ Terkirim: {item['symbol']} (Skor: {item['skor']:.2f})")
+    else:
+        print("\n  — Tidak ada sinyal valid pada siklus ini.")
+
     if now_wib.hour in JAM_LAPORAN and now_wib.minute < 30:
         await kirim_laporan(bot, exchange, usd_idr, fear_greed)
         print("  📊 Laporan portofolio terkirim")
