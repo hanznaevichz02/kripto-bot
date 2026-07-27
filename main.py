@@ -1,18 +1,17 @@
-"""
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
-   Versi: 3.6.0 (Deep Signal Breakdown & Top-2 Prospek)
+   Versi: 3.6.1 (Bullish-Only Filter & Top-2 Prospek)
    SPOT MARKET
 ========================================================
 
    Sumber Data:
-     - KuCoin (OHLCV Spot & Volume)    via ccxt
-     - Fear & Greed Index              via alternative.me (GRATIS)
-     - Funding Rate                    via KuCoin Futures (GRATIS)
-     - Kurs USD/IDR                    via Indodax API (USDT-IDR Real-time)
+     - KuCoin (OHLCV Spot & Volume)     via ccxt
+     - Fear & Greed Index               via alternative.me (GRATIS)
+     - Funding Rate                     via KuCoin Futures (GRATIS)
+     - Kurs USD/IDR                     via Indodax API (USDT-IDR Real-time)
   
    Konsep Utama:
-     - Liquidity Sweep   → Whale nyapu stop loss ritel (1H Trigger)
+     - Liquidity Sweep   → Bandar sapu stop loss ritel (1H Trigger)
      - Volume Absorption → Akumulasi/distribusi diam-diam
      - Order Block       → Zona order besar (dengan filter mitigasi)
      - Swing Structure   → Batas SL/TP presisi berbasis Swing Low/High (4H)
@@ -59,6 +58,9 @@ FUTURES_MAP = {
 }
 
 JAM_LAPORAN = {9, 14, 20}
+
+# Daftar tipe sinyal khusus BELI / BULLISH (Spot Approved)
+BULLISH_SIGNAL_TYPES = {'BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT'}
 
 # ============================================================
 # API HELPERS
@@ -172,7 +174,7 @@ def analisa(
     body_size    = abs(c['close'] - c['open'])
     upper_wick   = c['high']  - max(c['close'], c['open'])
     lower_wick   = min(c['close'], c['open']) - c['low']
-    vol_ratio    = round(c['volume'] / avg_vol, 2)
+    vol_ratio    = round(c['volume'] / (avg_vol if avg_vol > 0 else 1), 2)
 
     vol_spike = c['volume'] > avg_vol * 1.5
     vol_ultra = c['volume'] > avg_vol * 2.5
@@ -280,7 +282,7 @@ def format_pesan(symbol: str, s: dict) -> str:
         elif fr < -0.0005: fr_str = f"{fr*100:.4f}% (Squeeze)"
         else: fr_str = f"{fr*100:+.4f}% (Normal)"
 
-    is_bullish = tipe in ['BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT']
+    is_bullish = tipe in BULLISH_SIGNAL_TYPES
     
     if is_bullish:
         rm_label_1, rm_val_1 = "TP (Target)", format_rp(s['tp_buy'])
@@ -309,7 +311,7 @@ def format_pesan(symbol: str, s: dict) -> str:
         f"  • Skorsing : {s['skor']:.2f} pts\n"
         f"```\n"
         f"🎯 *ACTION PLAN :* {s['aksi']}\n"
-        f"💡 *Insight   :* {ket}"
+        f"💡 *Insight    :* {ket}"
     )
     return pesan
 
@@ -432,22 +434,26 @@ async def main():
             hasil = analisa(df_1h, df_4h, usd_idr, funding_rate, fear_greed, is_weekend)
 
             if hasil:
-                skor = 0
-                if hasil.get('vol_ultra'):
-                    skor += 5
-                else:
-                    skor += 2
-                
-                skor += hasil['vol_ratio']
-                
-                if (hasil['trend_4h'] == 'BULLISH' and 'BULL' in hasil['tipe']) or \
-                   (hasil['trend_4h'] == 'BEARISH' and 'BEAR' in hasil['tipe']):
-                    skor += 3
+                # --- FILTER UTAMA: Hanya proses sinyal BELI / BULLISH ---
+                if hasil['tipe'] in BULLISH_SIGNAL_TYPES:
+                    skor = 0
+                    if hasil.get('vol_ultra'):
+                        skor += 5
+                    else:
+                        skor += 2
+                    
+                    skor += hasil['vol_ratio']
+                    
+                    # Tambah poin jika aligned dengan Tren 4H Bullish
+                    if hasil['trend_4h'] == 'BULLISH':
+                        skor += 3
 
-                hasil['symbol'] = symbol
-                hasil['skor'] = skor
-                kumpulan_sinyal.append(hasil)
-                print(f"  🎯 Kandidat ditemukan: {symbol} ({hasil['tipe']}) | Skor: {skor:.2f}")
+                    hasil['symbol'] = symbol
+                    hasil['skor'] = skor
+                    kumpulan_sinyal.append(hasil)
+                    print(f"  🎯 Kandidat BELI ditemukan: {symbol} ({hasil['tipe']}) | Skor: {skor:.2f}")
+                else:
+                    print(f"  ⚠️ {symbol}: Sinyal {hasil['tipe']} (Jual/Bearish) diabaikan.")
             else:
                 print(f"  — {symbol}: tidak ada sinyal")
 
@@ -456,19 +462,19 @@ async def main():
 
         await asyncio.sleep(1.5)
 
-    # --- FILTER DIAMBIL TOP 2 PALING PROSPEK ---
+    # --- PILIH TOP 2 PROSPEK BELI TERBAIK ---
     if kumpulan_sinyal:
         kumpulan_sinyal.sort(key=lambda x: x['skor'], reverse=True)
         top_prospek = kumpulan_sinyal[:2]  # Ambil tepat 2 koin terbaik
         
-        print(f"\n📢 Mengirim {len(top_prospek)} sinyal teratas dari {len(kumpulan_sinyal)} kandidat...")
+        print(f"\n📢 Mengirim {len(top_prospek)} sinyal BELI teratas dari {len(kumpulan_sinyal)} kandidat...")
         
         for item in top_prospek:
             pesan = format_pesan(item['symbol'], item)
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
             print(f"  ✅ Terkirim: {item['symbol']} (Skor: {item['skor']:.2f})")
     else:
-        print("\n  — Tidak ada sinyal valid pada siklus ini.")
+        print("\n  — Tidak ada sinyal BELI yang valid pada siklus ini.")
 
     if now_wib.hour in JAM_LAPORAN and now_wib.minute < 30:
         await kirim_laporan(bot, exchange, usd_idr, fear_greed)
