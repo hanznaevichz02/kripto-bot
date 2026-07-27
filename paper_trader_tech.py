@@ -1,8 +1,9 @@
 """
 ========================================================
    KRIPTO BOT — Technical Pure Edition (Paper Trading)
-   Strategi: Golden Cross (EMA 9/21) + Swing 4H SL/TP
+   Strategi: Golden Cross & Pullback Bounce + Swing 4H
    Target  : Khusus ETH-IDR (Fair Head-to-Head vs SMC)
+   Market  : MURNI SPOT 100%
 ========================================================
 """
 
@@ -74,6 +75,7 @@ class TechnicalPaperTrader:
             amount  = pos["amount"]
             sl      = pos["sl"]
             tp      = pos["tp"]
+            strat_name = pos.get("strategy", "TECHNICAL")
             
             is_win        = current_price >= tp
             is_loss       = current_price <= sl
@@ -102,7 +104,7 @@ class TechnicalPaperTrader:
                 # Rekap history
                 trade_record = {
                     "pair": TARGET_PAIR_NAME,
-                    "strategy": "TECHNICAL (Golden Cross + Swing 4H)",
+                    "strategy": strat_name,
                     "entry_price": entry_p,
                     "exit_price": current_price,
                     "pnl_pct": round(pnl_pct, 2),
@@ -133,6 +135,7 @@ class TechnicalPaperTrader:
                     f"🧪 *[PAPER TRADING - TEKNIKAL EXIT]* {TARGET_PAIR_NAME}\n"
                     f"──────────────────────────────\n"
                     f"Alasan    : {exit_reason}\n"
+                    f"Strategi  : {strat_name}\n"
                     f"Harga In  : Rp {entry_p:,.0f}\n"
                     f"Harga Out : Rp {current_price:,.0f}\n"
                     f"P/L       : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n\n"
@@ -146,26 +149,31 @@ class TechnicalPaperTrader:
                 return msg
             return None
 
-        # 2. Jika Tidak Ada Posisi Aktif, Cari Sinyal Masuk (Golden Cross)
-        if not pos and signal_type == "BELI":
+        # 2. Jika Tidak Ada Posisi Aktif, Cari Sinyal Masuk (Golden Cross / Pullback Bounce)
+        if not pos and signal_type in ["BELI", "BELI_PULLBACK"]:
             available_cash = self.state["cash_idr"]
             if available_cash >= 100_000:  # Batas minimal alokasi
                 amount = available_cash / current_price
+                
+                # Identifikasi nama strategi untuk dicatat
+                strat_name = "Golden Cross" if signal_type == "BELI" else "Pullback Bounce"
+                
                 self.state["active_position"] = {
                     "entry_price_idr": current_price,
                     "amount": amount,
                     "sl": sl_price,
                     "tp": tp_price,
-                    "type": "BELI",
+                    "type": signal_type,
+                    "strategy": f"{strat_name} + Swing 4H",
                     "entry_time": current_time
                 }
-                self.state["cash_idr"] = 0.0  # Diputar ke posisi beli
+                self.state["cash_idr"] = 0.0  # Diputar ke posisi beli (Spot Murni)
                 save_state(self.state)
                 
                 msg = (
                     f"🧪 *[PAPER TRADING - TEKNIKAL ENTRY]* {TARGET_PAIR_NAME}\n"
                     f"──────────────────────────────\n"
-                    f"Strategi  : Golden Cross + Swing 4H Structure\n"
+                    f"Strategi  : {strat_name} + Swing 4H Structure\n"
                     f"Modal In  : Rp {available_cash:,.0f} (All-in Spot)\n"
                     f"Harga In  : Rp {current_price:,.0f}\n"
                     f"Target TP : Rp {tp_price:,.0f} (Swing High 4H)\n"
@@ -176,7 +184,7 @@ class TechnicalPaperTrader:
 
 # --- MAIN EXECUTOR ---
 async def main():
-    print("DEBUG: Menjalankan Paper Trader Teknikal Swing (ETH-IDR Spot)...")
+    print("DEBUG: Menjalankan Paper Trader Teknikal (ETH-IDR Spot)...")
     exchange = ccxt.kucoin({
         'enableRateLimit': True,
         'options': {'defaultType': 'spot'},
@@ -242,7 +250,7 @@ async def main():
         if sl_bullish >= harga_idr * 0.985:
             sl_bullish = harga_idr - (1.8 * atr_idr)
         
-        # 3. Condition Golden Cross & Death Cross
+        # 3. Condition Golden Cross & Death Cross & Pullback Bounce
         slope_ema9     = abs(df_1h['ema9'].iloc[curr_idx] - df_1h['ema9'].iloc[prev_idx]) / df_1h['ema9'].iloc[prev_idx] * 100
         is_sudut_tajam = slope_ema9 > 0.25 
         
@@ -254,11 +262,23 @@ async def main():
         golden = (ema9_prev < ema21_prev) and (ema9_now > ema21_now)
         death  = (ema9_prev > ema21_prev) and (ema9_now < ema21_now)
         
+        # --- KONDISI TAMBAHAN: PULLBACK BOUNCE ---
+        tren_bullish    = ema9_now > ema21_now
+        sentuh_ema21    = df_1h['low'].iloc[curr_idx] <= (ema21_now * 1.002) # Toleransi 0.2%
+        tutup_hijau     = df_1h['close'].iloc[curr_idx] > df_1h['open'].iloc[curr_idx]
+        tutup_atas_ema9 = df_1h['close'].iloc[curr_idx] > ema9_now
+        vol_oke         = df_1h['volume'].iloc[curr_idx] > df_1h['avg_vol'].iloc[curr_idx]
+
+        pullback_bounce = tren_bullish and sentuh_ema21 and tutup_hijau and tutup_atas_ema9 and vol_oke
+        # -----------------------------------------
+        
         signal_type = None
         if golden and is_spike_vol and is_sudut_tajam:
             signal_type = "BELI"
+        elif pullback_bounce:
+            signal_type = "BELI_PULLBACK"
         elif death:
-            signal_type = "JUAL"  # Digunakan sebagai sinyal exit darurat jika memegang posisi
+            signal_type = "JUAL"  # Sinyal exit darurat
             
         # 4. Evaluasi Paper Trading
         pt_msg = pt_tech.process(
