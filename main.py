@@ -317,8 +317,23 @@ def format_pesan(symbol: str, s: dict) -> str:
         z = s['ob_bear_zone']
         ob_info = f"\n*Area Order Block Bearish:*\n  {format_rp(z['low_idr'])} — {format_rp(z['high_idr'])}\n"
 
-    sl = s['sl_buy'] if s['aksi'] == 'BELI' else s['sl_sell']
-    tp = s['tp_buy'] if s['aksi'] == 'BELI' else s['tp_sell']
+    # ============================================================
+    # PERUBAHAN LOGIKA KHUSUS SPOT (Pemisahan Setup Beli vs Jual)
+    # ============================================================
+    is_bullish = tipe in ['BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT']
+
+    if is_bullish:
+        rm_text = (
+            f"*Saran Manajemen Risiko (Spot):*\n"
+            f"  • SL (Batas Rugi) : {format_rp(s['sl_buy'])}\n"
+            f"  • TP (Ambil Cuan) : {format_rp(s['tp_buy'])}"
+        )
+    else:
+        rm_text = (
+            f"*Saran Eksekusi Spot (Amankan Cash):*\n"
+            f"  • Target Serok Ulang : {format_rp(s['tp_sell'])}\n"
+            f"  • Batal Turun (Invalidasi) : {format_rp(s['sl_sell'])}"
+        )
 
     pesan = (
         f"*{judul}*\n"
@@ -339,9 +354,7 @@ def format_pesan(symbol: str, s: dict) -> str:
         f"  • Fear/Greed : {s['fear_greed']['value']} ({s['fear_greed']['label']})\n"
         f"  • Funding    : {fr_str}\n"
         f"\n"
-        f"*Saran Manajemen Risiko (Swing 4H):*\n"
-        f"  SL : {format_rp(sl)}\n"
-        f"  TP : {format_rp(tp)}"
+        f"{rm_text}"
     )
     return pesan
 
