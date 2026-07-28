@@ -4,6 +4,7 @@
     Mode    : MULTI-ASSET SCANNER + RANKING SYSTEM (16 Koin)
     Strategi: (Tech Golden Cross / Pullback) OR (SMC Sweep)
     Market  : MURNI SPOT 100% + HYBRID SCORING SYSTEM
+    Versi   : 4.1.0 (Bugfix & High-Precision Exit)
 ========================================================
 """
 
@@ -20,13 +21,13 @@ from telegram import Bot
 TOKEN               = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID             = os.getenv("TELEGRAM_CHAT_ID")
 
-VOL_MULTIPLIER_TECH = 2.0   # Acuan Bot TECH (Mean 3 Candle)
-VOL_MULTIPLIER_SMC  = 1.5   # Acuan Bot SMC (Median 20 Candle)
-MIN_SCORE_ENTRY     = 70    # Batas minimal skor kelayakan (0 - 100)
+VOL_MULTIPLIER_TECH = 2.0    # Acuan Bot TECH
+VOL_MULTIPLIER_SMC  = 1.5    # Acuan Bot SMC
+MIN_SCORE_ENTRY     = 70     # Batas minimal skor kelayakan (0 - 100)
 
 INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_hybrid.json"
-FEE_TAX_RATE        = 0.013 # Fee + Pajak PMK 68 (1.3%)
+FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (1.3%)
 
 ASSET_LIST = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'SUI/USDT',
@@ -40,7 +41,12 @@ def load_state():
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, 'r') as f:
-                return json.load(f)
+                state = json.load(f)
+                if "cash_idr" not in state: state["cash_idr"] = INITIAL_CAPITAL_IDR
+                if "active_position" not in state: state["active_position"] = None
+                if "history" not in state: state["history"] = []
+                if "stats" not in state: state["stats"] = {"total_trades": 0, "wins": 0, "losses": 0, "total_pnl_idr": 0.0}
+                return state
         except Exception:
             pass
     return {
@@ -63,8 +69,8 @@ def get_usd_idr() -> float:
         return 18000.0
 
 def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
-    swing_low = df_4h['low'].iloc[-window-1:-1].min()
-    swing_high = df_4h['high'].iloc[-window-1:-1].max()
+    swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
+    swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
     return {'swing_high': swing_high, 'swing_low': swing_low}
 
 def hitung_skor_hybrid(ema9_now, ema21_now, is_spike_vol_tech, vol_spike_smc,
@@ -98,7 +104,7 @@ def hitung_skor_hybrid(ema9_now, ema21_now, is_spike_vol_tech, vol_spike_smc,
     # 4. Risk-to-Reward Ratio / RRR (25 Poin)
     risk = harga_idr - sl_price
     reward = tp_price - harga_idr
-    rrr = (reward / risk) if risk > 0 else 0
+    rrr = (reward / risk) if risk > 0 else 0.0
 
     if rrr >= 2.0:
         score += 25
@@ -119,17 +125,20 @@ def analisa_koin_hybrid(exchange, symbol, usd_idr):
         if len(bars_1h) < 40 or len(bars_4h) < 15:
             return None
 
-        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
+        df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
 
         curr_idx = -2
         prev_idx = -3
         c = df_1h.iloc[curr_idx]
         p = df_1h.iloc[prev_idx]
 
-        harga_idr = c['close'] * usd_idr
-        high_idr  = c['high'] * usd_idr
-        low_idr   = c['low'] * usd_idr
+        # Ambil juga data candle paling baru (running - index -1) khusus pengecekan batas SL/TP aktual
+        latest_c = df_1h.iloc[-1]
+
+        harga_idr  = float(c['close'] * usd_idr)
+        high_idr   = float(max(c['high'], latest_c['high']) * usd_idr) # Pakai high tertinggi dari candle closed & running
+        low_idr    = float(min(c['low'], latest_c['low']) * usd_idr)   # Pakai low terendah dari candle closed & running
 
         # ATR 1H
         tr0 = df_1h['high'] - df_1h['low']
@@ -137,24 +146,24 @@ def analisa_koin_hybrid(exchange, symbol, usd_idr):
         tr2 = (df_1h['low']  - df_1h['close'].shift(1)).abs()
         df_1h['tr']  = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1)
         df_1h['atr'] = df_1h['tr'].rolling(window=14).mean()
-        atr_idr      = df_1h['atr'].iloc[curr_idx] * usd_idr
+        atr_idr      = float(df_1h['atr'].iloc[curr_idx] * usd_idr)
 
         # 1. SMC LOGIC
-        avg_vol_smc   = df_1h['volume'].iloc[-22:-2].median()
+        avg_vol_smc   = float(df_1h['volume'].iloc[-22:-2].median())
         candle_range  = c['high'] - c['low']
         lower_wick    = min(c['close'], c['open']) - c['low']
         upper_wick    = c['high'] - max(c['close'], c['open'])
         vol_spike_smc = c['volume'] > (avg_vol_smc * VOL_MULTIPLIER_SMC)
 
-        bull_sweep_smc = (lower_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] >= p['low'])
-        bear_sweep_smc = (upper_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] <= p['high'])
+        bull_sweep_smc = bool((lower_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] >= p['low']))
+        bear_sweep_smc = bool((upper_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] <= p['high']))
 
         # 2. TEKNIKAL LOGIC
         df_1h['ema9']         = df_1h['close'].ewm(span=9, adjust=False).mean()
         df_1h['ema21']        = df_1h['close'].ewm(span=21, adjust=False).mean()
         df_1h['avg_vol_tech'] = df_1h['volume'].rolling(window=3).mean().shift(1)
 
-        is_spike_vol_tech = c['volume'] > (df_1h['avg_vol_tech'].iloc[curr_idx] * VOL_MULTIPLIER_TECH)
+        is_spike_vol_tech = bool(c['volume'] > (df_1h['avg_vol_tech'].iloc[curr_idx] * VOL_MULTIPLIER_TECH))
 
         slope_ema9     = abs(df_1h['ema9'].iloc[curr_idx] - df_1h['ema9'].iloc[prev_idx]) / df_1h['ema9'].iloc[prev_idx] * 100
         is_sudut_tajam = slope_ema9 > 0.25
@@ -163,15 +172,15 @@ def analisa_koin_hybrid(exchange, symbol, usd_idr):
         ema21_now      = df_1h['ema21'].iloc[curr_idx]
         ema21_prev     = df_1h['ema21'].iloc[prev_idx]
 
-        golden_cross = (ema9_prev < ema21_prev) and (ema9_now > ema21_now) and is_spike_vol_tech and is_sudut_tajam
-        death_cross  = (ema9_prev > ema21_prev) and (ema9_now < ema21_now)
+        golden_cross = bool((ema9_prev < ema21_prev) and (ema9_now > ema21_now) and is_spike_vol_tech and is_sudut_tajam)
+        death_cross  = bool((ema9_prev > ema21_prev) and (ema9_now < ema21_now))
 
         tren_bullish    = ema9_now > ema21_now
         sentuh_ema21    = c['low'] <= (ema21_now * 1.002)
         tutup_hijau      = c['close'] > c['open']
         tutup_atas_ema9 = c['close'] > ema9_now
         vol_oke_tech    = c['volume'] > df_1h['avg_vol_tech'].iloc[curr_idx]
-        pullback_bounce = tren_bullish and sentuh_ema21 and tutup_hijau and tutup_atas_ema9 and vol_oke_tech
+        pullback_bounce = bool(tren_bullish and sentuh_ema21 and tutup_hijau and tutup_atas_ema9 and vol_oke_tech)
 
         tech_entry_signal = golden_cross or pullback_bounce
 
@@ -202,11 +211,11 @@ def analisa_koin_hybrid(exchange, symbol, usd_idr):
         return {
             "symbol": symbol,
             "pair_name": symbol.replace('/', '-').replace('USDT', 'IDR'),
-            "harga_idr": harga_idr,
-            "high_idr": high_idr,
-            "low_idr": low_idr,
-            "sl_price": sl_bullish,
-            "tp_price": tp_bullish,
+            "harga_idr": float(harga_idr),
+            "high_idr": float(high_idr),
+            "low_idr": float(low_idr),
+            "sl_price": float(sl_bullish),
+            "tp_price": float(tp_bullish),
             "is_entry": (tech_entry_signal or bull_sweep_smc),
             "is_emergency_exit": (death_cross or bear_sweep_smc),
             "emerg_reason": "Death Cross" if death_cross else ("SMC Bear Sweep" if bear_sweep_smc else ""),
@@ -223,8 +232,11 @@ def analisa_koin_hybrid(exchange, symbol, usd_idr):
 async def main():
     print("DEBUG: Menjalankan Paper Trader Hybrid Multi-Asset Scanner...")
     exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
-    try: exchange.load_markets()
-    except Exception as e: return
+    try: 
+        exchange.load_markets()
+    except Exception as e: 
+        print(f"Gagal memuat market: {e}")
+        return
 
     bot     = Bot(token=TOKEN)
     usd_idr = get_usd_idr()
@@ -247,12 +259,12 @@ async def main():
         is_emerg_exit = data["is_emergency_exit"]
 
         if is_win or is_loss or is_emerg_exit:
-            if is_win:
-                exit_reason = "TAKE PROFIT (SWING 4H) 🎯"
-                exit_price  = tp
-            elif is_loss:
+            if is_loss:
                 exit_reason = "STOP LOSS (SWING 4H) 🛑"
                 exit_price  = sl
+            elif is_win:
+                exit_reason = "TAKE PROFIT (SWING 4H) 🎯"
+                exit_price  = tp
             else:
                 exit_reason = f"EMERGENCY EXIT ({data['emerg_reason']}) ⚠️"
                 exit_price  = data["harga_idr"]
@@ -266,9 +278,12 @@ async def main():
 
             state["cash_idr"] += net
             state["history"].append({
-                "pair": pair_name, "pnl_pct": round(pnl_pct, 2), 
-                "pnl_idr": round(pnl_val, 2), "status": status,
-                "entry_time": pos["entry_time"], "exit_time": now_wib.strftime('%Y-%m-%d %H:%M:%S')
+                "pair": pair_name, 
+                "pnl_pct": round(pnl_pct, 2), 
+                "pnl_idr": round(pnl_val, 2), 
+                "status": status,
+                "entry_time": pos["entry_time"], 
+                "exit_time": now_wib.strftime('%Y-%m-%d %H:%M:%S')
             })
             state["stats"]["total_trades"] += 1
             if status == "WIN": state["stats"]["wins"] += 1
@@ -282,16 +297,20 @@ async def main():
             msg = (
                 f"🧪 *[PAPER TRADING - HYBRID EXIT]* {pair_name}\n"
                 f"──────────────────────────────\n"
-                f"Alasan   : {exit_reason}\n"
-                f"Harga In : Rp {entry_p:,.0f}\n"
-                f"Harga Out: Rp {exit_price:,.0f}\n"
-                f"P/L      : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n\n"
+                f"Alasan    : {exit_reason}\n"
+                f"Harga In  : Rp {entry_p:,.0f}\n"
+                f"Harga Out : Rp {exit_price:,.0f}\n"
+                f"P/L       : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n\n"
                 f"📊 *REKAP TOTAL HYBRID*:\n"
                 f"• Total Trade : {stats['total_trades']}x\n"
                 f"• Win / Loss  : {stats['wins']} Win / {stats['losses']} Loss (WR: {wr:.1f}%)\n"
+                f"• Total P/L   : Rp {stats['total_pnl_idr']:+,.0f}\n"
                 f"• Sisa Kas    : Rp {state['cash_idr']:,.0f}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
+            print(f"    🧪 Notif Exit Hybrid Terkirim untuk {pair_name}")
+        else:
+            print(f"    — Hybrid: Posisi {pair_name} masih aktif.")
         return
 
     # =========================================================
@@ -304,7 +323,7 @@ async def main():
             candidates.append(res)
 
     if not candidates:
-        print("  — Hybrid Scanner: Tidak ada koin yang lolos kriteria / skor minim.")
+        print("    — Hybrid Scanner: Tidak ada koin yang lolos kriteria / skor minim.")
         return
 
     # Sort berdasarkan skor tertinggi (#1)
@@ -340,6 +359,7 @@ async def main():
             f"Batas SL  : Rp {winner['sl_price']:,.0f}"
         )
         await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
+        print(f"    🧪 Notif Entry Hybrid Terkirim untuk Juara #1 ({winner['pair_name']})")
 
 if __name__ == '__main__':
     asyncio.run(main())
