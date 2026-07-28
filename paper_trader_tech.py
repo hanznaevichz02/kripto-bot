@@ -4,7 +4,7 @@
    Strategi: Golden Cross & Pullback Bounce + Swing 4H
    Target  : Khusus ETH-IDR (Fair Head-to-Head vs SMC)
    Market  : MURNI SPOT 100%
-   Versi   : 3.8.0 (Fixed Vol Window, State Safety & Signal Export)
+   Versi   : 4.0.0 (With Technical Scoring System & Quality Filter)
 ========================================================
 """
 
@@ -29,6 +29,9 @@ TARGET_SYMBOL       = "ETH/USDT"
 TARGET_PAIR_NAME    = "ETH-IDR"
 FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (1.3% per siklus roundtrip)
 
+# Parameter Skoring Teknikal
+MIN_SCORE_ENTRY     = 70   # Batas minimal skor kelayakan entry Teknikal (0 - 100)
+
 # --- MANAJEMEN STATE PAPER TRADING ---
 def load_state():
     default_state = {
@@ -42,7 +45,6 @@ def load_state():
         try:
             with open(STATE_FILE, 'r') as f:
                 state = json.load(f)
-                # FIX BUG 2: Proteksi key yang hilang jika membaca file lama
                 if "cash_idr" not in state:
                     state["cash_idr"] = INITIAL_CAPITAL_IDR
                 if "active_position" not in state:
@@ -81,12 +83,81 @@ def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
     swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
     return {'swing_high': swing_high, 'swing_low': swing_low}
 
+# --- FUNGSI SKORING KUALITAS TEKNIKAL ---
+def hitung_skor_tech(c, avg_vol, slope_ema9, harga_idr, sl_price, tp_price, is_golden):
+    """
+    Sistem skoring kualitatif khusus Strategi Teknikal (Skor 0 - 100)
+    """
+    score = 0
+    breakdown = []
+
+    # 1. Kekuatan Momentum EMA / Slope (25 Poin)
+    if slope_ema9 >= 0.50:
+        score += 25
+        breakdown.append(f"• Slope EMA9 Sangat Tajam ({slope_ema9:.2f}%) (+25)")
+    elif slope_ema9 >= 0.25:
+        score += 15
+        breakdown.append(f"• Slope EMA9 Tajam ({slope_ema9:.2f}%) (+15)")
+    else:
+        score += 10
+        breakdown.append(f"• Slope EMA9 Moderat ({slope_ema9:.2f}%) (+10)")
+
+    # 2. Lonjakan Volume Spike (25 Poin)
+    vol_ratio = (c['volume'] / avg_vol) if avg_vol > 0 else 0
+    if vol_ratio >= 2.5:
+        score += 25
+        breakdown.append(f"• Volume Spike Sangat Tinggi ({vol_ratio:.1f}x) (+25)")
+    elif vol_ratio >= 2.0:
+        score += 20
+        breakdown.append(f"• Volume Spike Tinggi ({vol_ratio:.1f}x) (+20)")
+    elif vol_ratio >= 1.5:
+        score += 15
+        breakdown.append(f"• Volume Spike Valid ({vol_ratio:.1f}x) (+15)")
+
+    # 3. Kualitas Candle Body / Bullish Power (25 Poin)
+    candle_range = c['high'] - c['low']
+    body_size = abs(c['close'] - c['open'])
+    body_ratio = (body_size / candle_range) if candle_range > 0 else 0
+    is_bullish = c['close'] > c['open']
+
+    if is_bullish and body_ratio >= 0.60:
+        score += 25
+        breakdown.append(f"• Dominasi Candle Bullish Kuat (Body {body_ratio*100:.0f}%) (+25)")
+    elif is_bullish and body_ratio >= 0.40:
+        score += 15
+        breakdown.append(f"• Dominasi Candle Bullish Moderat (Body {body_ratio*100:.0f}%) (+15)")
+    elif is_bullish:
+        score += 10
+        breakdown.append("• Candle Closed Hijau (+10)")
+
+    # Bonus Poin Tambahan Tipe Sinyal
+    if is_golden:
+        breakdown.append("• Konfirmasi Golden Cross Valid")
+
+    # 4. Risk-to-Reward Ratio / RRR (25 Poin)
+    risk = harga_idr - sl_price
+    reward = tp_price - harga_idr
+    rrr = (reward / risk) if risk > 0 else 0
+
+    if rrr >= 2.0:
+        score += 25
+        breakdown.append(f"• RRR Sangat Ideal ({rrr:.2f} >= 2.0) (+25)")
+    elif rrr >= 1.5:
+        score += 15
+        breakdown.append(f"• RRR Cukup Ideal ({rrr:.2f} >= 1.5) (+15)")
+    else:
+        breakdown.append(f"• RRR Kurang Ideal ({rrr:.2f} < 1.5) (+0)")
+
+    final_score = min(score, 100)
+    return final_score, rrr, breakdown
+
 # --- KELAS PAPER TRADER TEKNIKAL ---
 class TechnicalPaperTrader:
     def __init__(self):
         self.state = load_state()
 
-    def process(self, signal_type, current_price, high_price, low_price, current_time, sl_price, tp_price):
+    def process(self, signal_type, current_price, high_price, low_price, 
+                current_time, sl_price, tp_price, score_info=None):
         pos = self.state.get("active_position")
 
         # =========================================================
@@ -99,13 +170,11 @@ class TechnicalPaperTrader:
             tp         = pos["tp"]
             strat_name = pos.get("strategy", "TECHNICAL")
             
-            # Deteksi presisi menggunakan High/Low candle untuk eksekusi wick/jarum
             is_win        = high_price >= tp
             is_loss       = low_price <= sl
             is_death_exit = signal_type == "JUAL"  # Death Cross Emergency Exit
             
             if is_win or is_loss or is_death_exit:
-                # Evaluasi Stop Loss terlebih dahulu untuk manajemen risiko konservatif
                 if is_loss:
                     exit_reason = "STOP LOSS (SWING 4H) 🛑"
                     exit_price  = sl
@@ -125,10 +194,8 @@ class TechnicalPaperTrader:
                 pnl_pct         = (pnl_val / modal_val) * 100
                 status          = "WIN" if pnl_val > 0 else "LOSS"
                 
-                # Update kas
                 self.state["cash_idr"] += net_final_val
                 
-                # Rekap history
                 trade_record = {
                     "pair": TARGET_PAIR_NAME,
                     "strategy": strat_name,
@@ -142,7 +209,6 @@ class TechnicalPaperTrader:
                 }
                 self.state["history"].append(trade_record)
                 
-                # Update stats
                 self.state["stats"]["total_trades"] += 1
                 if status == "WIN":
                     self.state["stats"]["wins"] += 1
@@ -150,11 +216,9 @@ class TechnicalPaperTrader:
                     self.state["stats"]["losses"] += 1
                 self.state["stats"]["total_pnl_idr"] += round(pnl_val, 2)
                 
-                # Bersihkan posisi aktif
                 self.state["active_position"] = None
                 save_state(self.state)
                 
-                # Susun pesan notifikasi
                 stats    = self.state["stats"]
                 win_rate = (stats["wins"] / stats["total_trades"]) * 100 if stats["total_trades"] > 0 else 0
                 
@@ -175,9 +239,8 @@ class TechnicalPaperTrader:
                 )
                 return msg
 
-            # PROTEKSI: Jika masih ada posisi ACTIVE & ada sinyal Beli baru, abaikan
             if signal_type in ["BELI", "BELI_PULLBACK"]:
-                print(f"   🔒 [GUARD] Sinyal {signal_type} diabaikan! Posisi TEKNIKAL {TARGET_PAIR_NAME} masih ACTIVE.")
+                print(f"    🔒 [GUARD] Sinyal {signal_type} diabaikan! Posisi TEKNIKAL {TARGET_PAIR_NAME} masih ACTIVE.")
 
             return None
 
@@ -186,10 +249,8 @@ class TechnicalPaperTrader:
         # =========================================================
         if signal_type in ["BELI", "BELI_PULLBACK"]:
             available_cash = self.state["cash_idr"]
-            if available_cash >= 100_000:  # Batas minimal alokasi
+            if available_cash >= 100_000:
                 amount = available_cash / current_price
-                
-                # Identifikasi nama strategi untuk dicatat
                 strat_name = "Golden Cross" if signal_type == "BELI" else "Pullback Bounce"
                 
                 self.state["active_position"] = {
@@ -201,13 +262,23 @@ class TechnicalPaperTrader:
                     "strategy": f"{strat_name} + Swing 4H",
                     "entry_time": current_time
                 }
-                self.state["cash_idr"] = 0.0  # Diputar ke posisi beli (Spot Murni)
+                self.state["cash_idr"] = 0.0
                 save_state(self.state)
                 
+                score_str = ""
+                if score_info:
+                    score, rrr, breakdown = score_info
+                    score_str = (
+                        f"📊 *SKOR ENTRY TEKNIKAL*: `{score}/100` (Min: {MIN_SCORE_ENTRY})\n"
+                        f"*Rincian Skoring*:\n" + "\n".join(breakdown) + "\n"
+                        f"──────────────────────────────\n"
+                    )
+
                 msg = (
                     f"🧪 *[PAPER TRADING - TEKNIKAL ENTRY]* {TARGET_PAIR_NAME}\n"
                     f"──────────────────────────────\n"
                     f"Strategi  : {strat_name} + Swing 4H Structure\n"
+                    f"{score_str}"
                     f"Modal In  : Rp {available_cash:,.0f} (All-in Spot)\n"
                     f"Harga In  : Rp {current_price:,.0f}\n"
                     f"Target TP : Rp {tp_price:,.0f} (Swing High 4H)\n"
@@ -218,7 +289,7 @@ class TechnicalPaperTrader:
 
 # --- MAIN EXECUTOR ---
 async def main():
-    print("DEBUG: Menjalankan Paper Trader Teknikal (ETH-IDR Spot)...")
+    print("DEBUG: Menjalankan Paper Trader Teknikal + Scoring System (ETH-IDR Spot)...")
     exchange = ccxt.kucoin({
         'enableRateLimit': True,
         'options': {'defaultType': 'spot'},
@@ -245,7 +316,6 @@ async def main():
         if len(bars_1h) < 40 or len(bars_4h) < 15:
             return
             
-        # FIX BUG 3: Tipe data homogen float
         df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
         df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
         
@@ -259,14 +329,14 @@ async def main():
         df_1h['tr']  = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1)
         df_1h['atr'] = df_1h['tr'].rolling(window=14).mean()
         
-        # FIX BUG 1: Window MA Volume diperbaiki dari 3 menjadi 20
         df_1h['avg_vol'] = df_1h['volume'].rolling(window=20).mean().shift(1)
         
         curr_idx = -2
         prev_idx = -3
         curr = df_1h.iloc[curr_idx]
+        avg_vol_now = df_1h['avg_vol'].iloc[curr_idx]
         
-        is_spike_vol = curr['volume'] > (df_1h['avg_vol'].iloc[curr_idx] * VOL_MULTIPLIER)
+        is_spike_vol = curr['volume'] > (avg_vol_now * VOL_MULTIPLIER)
         
         harga_idr = curr['close'] * usd_idr
         high_idr  = curr['high'] * usd_idr
@@ -281,14 +351,14 @@ async def main():
         sl_bullish = swing_low_idr - (0.5 * atr_idr)
         tp_bullish = swing_high_idr
         
-        # Filter Pengaman / Emergency Fallback
+        # Filter Pengaman
         if tp_bullish <= harga_idr * 1.015:
             tp_bullish = harga_idr + (3.5 * atr_idr)
             
         if sl_bullish >= harga_idr * 0.985:
             sl_bullish = harga_idr - (1.8 * atr_idr)
         
-        # 3. Condition Golden Cross & Death Cross & Pullback Bounce
+        # 3. Kondisi Golden Cross, Death Cross & Pullback Bounce
         slope_ema9     = abs(df_1h['ema9'].iloc[curr_idx] - df_1h['ema9'].iloc[prev_idx]) / df_1h['ema9'].iloc[prev_idx] * 100
         is_sudut_tajam = slope_ema9 > 0.25 
         
@@ -300,21 +370,34 @@ async def main():
         golden = (ema9_prev < ema21_prev) and (ema9_now > ema21_now)
         death  = (ema9_prev > ema21_prev) and (ema9_now < ema21_now)
         
-        # --- KONDISI TAMBAHAN: PULLBACK BOUNCE ---
         tren_bullish    = ema9_now > ema21_now
-        sentuh_ema21    = df_1h['low'].iloc[curr_idx] <= (ema21_now * 1.002) # Toleransi 0.2%
+        sentuh_ema21    = df_1h['low'].iloc[curr_idx] <= (ema21_now * 1.002)
         tutup_hijau     = df_1h['close'].iloc[curr_idx] > df_1h['open'].iloc[curr_idx]
         tutup_atas_ema9 = df_1h['close'].iloc[curr_idx] > ema9_now
-        vol_oke         = df_1h['volume'].iloc[curr_idx] > df_1h['avg_vol'].iloc[curr_idx]
+        vol_oke         = df_1h['volume'].iloc[curr_idx] > avg_vol_now
 
         pullback_bounce = tren_bullish and sentuh_ema21 and tutup_hijau and tutup_atas_ema9 and vol_oke
-        # -----------------------------------------
         
+        raw_beli          = golden and is_spike_vol and is_sudut_tajam
+        raw_pullback_beli = pullback_bounce
+        
+        # EVALUASI SINYAL DENGAN SCORING SYSTEM
         signal_type = None
-        if golden and is_spike_vol and is_sudut_tajam:
-            signal_type = "BELI"
-        elif pullback_bounce:
-            signal_type = "BELI_PULLBACK"
+        score_info  = None
+
+        if raw_beli or raw_pullback_beli:
+            target_signal = "BELI" if raw_beli else "BELI_PULLBACK"
+            score, rrr, breakdown = hitung_skor_tech(
+                curr, avg_vol_now, slope_ema9, harga_idr, sl_bullish, tp_bullish, is_golden=raw_beli
+            )
+            score_info = (score, rrr, breakdown)
+
+            if score >= MIN_SCORE_ENTRY:
+                signal_type = target_signal
+                print(f"  🎯 [TEKNIKAL SKOR PASS] Entry Disetujui ({signal_type})! Skor: {score}/{MIN_SCORE_ENTRY}")
+            else:
+                print(f"  ⚠️ [TEKNIKAL SKOR FAIL] Sinyal Beli Terdeteksi Tapi Skor ({score}) < {MIN_SCORE_ENTRY}. Dibatalkan.")
+
         elif death:
             signal_type = "JUAL"  # Sinyal exit darurat
             
@@ -325,6 +408,8 @@ async def main():
             "timestamp": now_w_ib_str,
             "symbol": TARGET_SYMBOL,
             "signal_type": signal_type,
+            "score": score_info[0] if score_info else 0,
+            "rrr": score_info[1] if score_info else 0,
             "current_price": harga_idr,
             "high_price": high_idr,
             "low_price": low_idr,
@@ -341,14 +426,15 @@ async def main():
             low_price=low_idr,
             current_time=now_w_ib_str,
             sl_price=sl_bullish,
-            tp_price=tp_bullish
+            tp_price=tp_bullish,
+            score_info=score_info
         )
         
         if pt_msg:
             await bot.send_message(chat_id=CHAT_ID, text=pt_msg, parse_mode='Markdown')
-            print("   🧪 Notif Simulasi Teknikal ETH-IDR Terkirim")
+            print("    🧪 Notif Simulasi Teknikal ETH-IDR Terkirim")
         else:
-            print("   — Teknikal ETH-IDR: Tidak ada aksi (Posisi sedang aktif / Sinyal nihil)")
+            print("    — Teknikal ETH-IDR: Tidak ada aksi (Posisi sedang aktif / Sinyal nihil / Skor tidak memenuhi)")
 
     except Exception as e:
         print(f"Error pada paper trader teknikal: {e}")
