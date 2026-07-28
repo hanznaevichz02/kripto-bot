@@ -1,19 +1,11 @@
 {
-    "timestamp": "2026-07-28 23:05:54",
-    "pair": "XRP-IDR",
-    "symbol": "XRP/USDT",
-    "signal": "BELI",
-    "score": 100,
-    "price": 19209.66992,
-    "high": 19248.97968,
-    "low": 18972.54912,
-    "sl": 18792.94396,
-    "tp": 20087.46768,
-    "breakdown": [
-        "\u2022 Konfirmasi CHoCH Valid (+35)",
-        "\u2022 Struktur BOS Terbentuk (+25)",
-        "\u2022 Area Mitigasi / Order Block Tersentuh (+20)",
-        "\u2022 Lonjakan Volume Konfirmasi (+10)",
-        "\u2022 RRR Ideal (2.11 >= 2.0) (+10)"
-    ]
+    "timestamp": "2026-07-29 00:05:46",
+    "symbol": "NEAR/USDT",
+    "signal_type": "BULL_SWEEP",
+    "current_price": 29878.0204,
+    "high_price": 30011.323999999997,
+    "low_price": 29760.929399999997,
+    "sl_price": 29052.593185714282,
+    "tp_price": 33053.8886,
+    "rrr": 3.85
 }
