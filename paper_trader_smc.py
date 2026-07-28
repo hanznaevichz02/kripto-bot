@@ -23,7 +23,7 @@ INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_smc.json"
 TARGET_SYMBOL       = "ETH/USDT"
 TARGET_PAIR_NAME    = "ETH-IDR"
-FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (0.13% / 0.0013 x 10 = 0.013 per siklus roundtrip)
+FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (1.3% per siklus roundtrip)
 
 # --- MANAJEMEN STATE PAPER TRADING SMC ---
 def load_state():
@@ -62,7 +62,6 @@ def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
     Mencari titik terendah (Swing Low) dan tertinggi (Swing High)
     dari N candle 4H terakhir untuk batas pertahanan Spot.
     """
-    # Mengabaikan candle running (-1) agar swing tidak berubah-ubah di tengah candle
     swing_low = df_4h['low'].iloc[-window-1:-1].min()
     swing_high = df_4h['high'].iloc[-window-1:-1].max()
     return {'swing_high': swing_high, 'swing_low': swing_low}
@@ -71,22 +70,38 @@ class SMCIndependentTrader:
     def __init__(self):
         self.state = load_state()
 
-    def process_signal(self, signal_type, current_price, current_time, sl_price, tp_price):
+    def process_signal(self, signal_type, current_price, high_price, low_price, current_time, sl_price, tp_price):
         msg = None
         
+        # =========================================================
         # 1. CEK EXIT POSISI SPOT (TP / SL / Sinyal Bearish Emergency)
+        # =========================================================
         if self.state["status"] == "IN_POSITION":
             buy_p = self.state["buy_price"]
             tp    = self.state["tp"]
             sl    = self.state["sl"]
 
-            is_tp = current_price >= tp
-            is_sl = current_price <= sl
+            # Deteksi presisi menggunakan High/Low candle untuk eksekusi wick/jarum
+            is_tp          = high_price >= tp
+            is_sl          = low_price <= sl
             is_bear_signal = signal_type == "BEAR_SWEEP"
 
             if is_tp or is_sl or is_bear_signal:
-                gross_pct = ((current_price - buy_p) / buy_p)
-                net_pct = gross_pct - FEE_TAX_RATE
+                if is_tp:
+                    status_title = "🟢 TAKE PROFIT (SWING 4H)"
+                    reason       = "Target TP (Swing High 4H)"
+                    exit_price   = tp
+                elif is_sl:
+                    status_title = "🔴 STOP LOSS (SWING 4H)"
+                    reason       = "Stop Loss (Swing Low 4H)"
+                    exit_price   = sl
+                else:
+                    status_title = "⚠️ EMERGENCY EXIT (SMC)"
+                    reason       = "Sinyal BEAR_SWEEP"
+                    exit_price   = current_price
+
+                gross_pct = ((exit_price - buy_p) / buy_p)
+                net_pct   = gross_pct - FEE_TAX_RATE
                 
                 pnl_rp = self.state["balance"] * net_pct
                 self.state["balance"] += pnl_rp
@@ -95,12 +110,9 @@ class SMCIndependentTrader:
 
                 if pnl_rp > 0:
                     self.state["wins"] += 1
-                    status_title = "🟢 TAKE PROFIT (SWING 4H)"
                 else:
                     self.state["losses"] += 1
-                    status_title = "🔴 EXIT / STOP LOSS (SWING 4H)"
 
-                reason = "Target TP (Swing High 4H)" if is_tp else ("Stop Loss (Swing Low 4H)" if is_sl else "Sinyal BEAR_SWEEP")
                 win_rate = (self.state["wins"] / self.state["total_trades"]) * 100 if self.state["total_trades"] > 0 else 0
 
                 msg = (
@@ -109,7 +121,7 @@ class SMCIndependentTrader:
                     f"Status    : {status_title}\n"
                     f"• Alasan  : {reason}\n"
                     f"• Harga In: Rp {buy_p:,.0f}\n"
-                    f"• Harga Out: Rp {current_price:,.0f}\n"
+                    f"• Harga Out: Rp {exit_price:,.0f}\n"
                     f"• P/L     : {net_pct*100:+.2f}% (Rp {pnl_rp:+,.0f})\n"
                     f"• Saldo   : Rp {self.state['balance']:,.0f}\n"
                     f"• Win Rate: {win_rate:.1f}% ({self.state['wins']}/{self.state['total_trades']} Trade)"
@@ -117,7 +129,15 @@ class SMCIndependentTrader:
                 save_state(self.state)
                 return msg
 
+            # PROTEKSI: Jika masih IN_POSITION & ada sinyal Beli baru, abaikan
+            if signal_type == "BULL_SWEEP":
+                print(f"  🔒 [GUARD] Sinyal BULL_SWEEP diabaikan! Posisi SMC {TARGET_PAIR_NAME} masih IN_POSITION.")
+
+            return None
+
+        # =========================================================
         # 2. CEK ENTRY POSISI SPOT (Hanya Beli saat Bull Sweep)
+        # =========================================================
         elif self.state["status"] == "IDLE":
             if signal_type == "BULL_SWEEP":
                 self.state["status"] = "IN_POSITION"
@@ -201,6 +221,8 @@ async def main():
             signal_type = "BEAR_SWEEP"
 
         harga_idr = c['close'] * usd_idr
+        high_idr  = c['high'] * usd_idr
+        low_idr   = c['low'] * usd_idr
         atr_idr   = df_1h['atr'].iloc[curr_idx] * usd_idr
         
         # Kalkulasi Swing High & Swing Low 4H
@@ -209,17 +231,13 @@ async def main():
         swing_low_idr  = swing['swing_low'] * usd_idr
         
         # LOGIKA PERBAIKAN SL & TP SWING (SPOT FRIENDLY)
-        # SL = Berada di bawah Swing Low 4H + buffer 0.5 ATR
         sl_bullish = swing_low_idr - (0.5 * atr_idr)
-        # TP = Mengincar Puncak Swing High 4H
         tp_bullish = swing_high_idr
 
         # FILTER PENGAMAN (Emergency Fallback)
-        # Jika Swing High 4H terlalu dekat/di bawah harga beli saat ini
         if tp_bullish <= harga_idr * 1.015:
             tp_bullish = harga_idr + (3.5 * atr_idr)
             
-        # Jika Swing Low 4H terlalu dekat/di atas harga beli saat ini
         if sl_bullish >= harga_idr * 0.985:
             sl_bullish = harga_idr - (1.8 * atr_idr)
         
@@ -227,6 +245,8 @@ async def main():
         pt_msg = trader.process_signal(
             signal_type=signal_type,
             current_price=harga_idr,
+            high_price=high_idr,
+            low_price=low_idr,
             current_time=now_w_ib_str,
             sl_price=sl_bullish,
             tp_price=tp_bullish
@@ -234,9 +254,9 @@ async def main():
         
         if pt_msg:
             await bot.send_message(chat_id=CHAT_ID, text=pt_msg, parse_mode='Markdown')
-            print("  🧪 Notif Simulasi SMC Swing ETH-IDR Terkirim")
+            print("   🧪 Notif Simulasi SMC Swing ETH-IDR Terkirim")
         else:
-            print("  — SMC Swing ETH-IDR: Tidak ada aksi (Posisi aktif / Sinyal nihil)")
+            print("   — SMC Swing ETH-IDR: Tidak ada aksi (Posisi aktif / Sinyal nihil)")
 
     except Exception as e:
         print(f"Error pada paper trader SMC: {e}")
