@@ -75,14 +75,17 @@ def run_manual_analysis():
         swing_low = float(df_4h['low'].iloc[-8:-1].min()) * usd_idr
         swing_high = float(df_4h['high'].iloc[-8:-1].max()) * usd_idr
 
-        # Penentuan Tren & Target Singkat
+        # Penentuan Tren & Target
         is_bullish = df_1h['ema9'].iloc[curr_idx] > df_1h['ema21'].iloc[curr_idx]
         
-        tren_pendek = "Naik" if is_bullish else "Turun"
+        tren_pendek = "Potensi Naik" if is_bullish else "Potensi Turun"
         
-        # Format Singkat 1 Baris
-        pred_pendek = f"Turun ke Rp {swing_low:,.0f}" if not is_bullish else f"Naik ke Rp {swing_high:,.0f}"
-        pred_panjang = f"Naik ke Rp {swing_high:,.0f}" if is_bullish else f"Turun ke Rp {swing_low:,.0f}"
+        # Dipecah menjadi status dan nominal harga agar muat di layar HP
+        status_pendek = "Turun ke" if not is_bullish else "Naik ke"
+        harga_pendek  = f"Rp {swing_low:,.0f}" if not is_bullish else f"Rp {swing_high:,.0f}"
+        
+        status_panjang = "Naik ke" if is_bullish else "Turun ke"
+        harga_panjang  = f"Rp {swing_high:,.0f}" if is_bullish else f"Rp {swing_low:,.0f}"
 
         # Kirim ke Telegram dengan format dibungkus block code ( ``` )
         bot = Bot(token=TOKEN)
@@ -90,11 +93,14 @@ def run_manual_analysis():
             f"```text\n"
             f"🔍 [ANALISA] — {PAIR_NAME}\n"
             f"----------------------------------\n"
-            f"• Harga Sekarang: Rp {harga_idr:,.0f}\n"
-            f"\n"
-            f"• Tren Pendek   : {tren_pendek}\n"
-            f"• Jangka Pendek : {pred_pendek}\n"
-            f"• Jangka Panjang: {pred_panjang}\n"
+            f"• Tren Pendek     : {tren_pendek}\n"
+            f"• Jangka Pendek   : {status_pendek}\n"
+            f"                    {harga_pendek}\n"
+            f"• Jangka Panjang  : {status_panjang}\n"
+            f"                    {harga_panjang}\n"
+            f"• Harga Sekarang  : Rp {harga_idr:,.0f}\n"
+            f"----------------------------------\n"
+            f"Status: Selesai (On-Demand)\n"
             f"```"
         )
         
