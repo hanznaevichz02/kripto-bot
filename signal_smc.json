@@ -1,11 +1,11 @@
 {
-    "timestamp": "2026-07-28 21:05:49",
+    "timestamp": "2026-07-28 22:05:46",
     "symbol": "XRP/USDT",
     "signal_type": "BULL_SWEEP",
-    "current_price": 18960.454759999997,
-    "high_price": 19053.5618,
-    "low_price": 18859.94968,
-    "sl_price": 18798.29075428571,
-    "tp_price": 20100.83556,
-    "rrr": 7.03
+    "current_price": 19020.68238,
+    "high_price": 19042.509570000002,
+    "low_price": 18879.437009999998,
+    "sl_price": 18852.069269999996,
+    "tp_price": 20095.265610000002,
+    "rrr": 6.37
 }
