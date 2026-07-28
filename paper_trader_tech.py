@@ -3,7 +3,7 @@
    KRIPTO BOT — Technical Pure Edition (Multi-Asset Paper Trading)
    Strategi: Golden Cross & Pullback Bounce + Swing 4H
    Market  : MURNI SPOT 100% (Multi-Asset Watchlist)
-   Versi   : 4.2.0 (Multi-Asset Scanner & JSON Safety Fix)
+   Versi   : 4.2.1 (Multi-Asset Scanner & Persistent JSON Signal)
 ========================================================
 """
 
@@ -367,6 +367,8 @@ async def main():
                     await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
                     notif_sent = True
                 break
+        # Jika sedang ada posisi aktif, simpan status sinyal atau kosongkan ke file signal
+        save_signal(None)
     elif candidates:
         top = candidates[0]
         save_signal({"timestamp": now_str, **top})
@@ -375,6 +377,9 @@ async def main():
             await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
             print(f"    🧪 Notif Entry Teknikal Terkirim untuk Juara #1 ({top['pair']})")
             notif_sent = True
+    else:
+        # Jika tidak ada posisi aktif dan tidak ada kandidat, simpan null agar file selalu ada
+        save_signal(None)
 
     if not notif_sent:
         print("    — Teknikal Scanner: Tidak ada posisi aktif atau sinyal valid yang memenuhi skor.")
