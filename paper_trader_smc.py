@@ -3,7 +3,7 @@
    KRIPTO BOT — Smart Money Concept (SMC) Paper Trader
    Strategi: Liquidity Sweep (1H) + Swing Structure (4H)
    Target  : Khusus ETH-IDR (Pasar Spot / Buy Only)
-   Versi   : 4.1.0 (Bugfix Exit Logic & Signal Exporter)
+   Versi   : 4.1.0 (Fixed High-Precision Exit & JSON Safety)
 ========================================================
 """
 
@@ -117,7 +117,7 @@ def hitung_skor_smc(c, avg_vol, ema9_now, ema21_now, harga_idr, sl_price, tp_pri
     # 4. Risk-to-Reward Ratio / RRR (25 Poin)
     risk = harga_idr - sl_price
     reward = tp_price - harga_idr
-    rrr = (reward / risk) if risk > 0 else 0
+    rrr = (reward / risk) if risk > 0 else 0.0
 
     if rrr >= 2.0:
         score += 25
@@ -155,14 +155,14 @@ class SMCIndependentTrader:
             is_bear_signal = raw_bear_sweep  # Emergency Exit dari Raw Bear Sweep
 
             if is_tp or is_sl or is_bear_signal:
-                if is_tp:
-                    status_title = "🟢 TAKE PROFIT (SWING 4H)"
-                    reason       = "Target TP (Swing High 4H)"
-                    exit_price   = tp
-                elif is_sl:
+                if is_sl:
                     status_title = "🔴 STOP LOSS (SWING 4H)"
                     reason       = "Stop Loss (Swing Low 4H)"
                     exit_price   = sl
+                elif is_tp:
+                    status_title = "🟢 TAKE PROFIT (SWING 4H)"
+                    reason       = "Target TP (Swing High 4H)"
+                    exit_price   = tp
                 else:
                     status_title = "⚠️ EMERGENCY EXIT (SMC)"
                     reason       = "Sinyal BEAR_SWEEP Terdeteksi"
@@ -172,7 +172,7 @@ class SMCIndependentTrader:
                 net_pct   = gross_pct - FEE_TAX_RATE
                 pnl_rp    = position_cap * net_pct
                 
-                self.state["balance"]          = position_cap + pnl_rp
+                self.state["balance"]          = float(position_cap + pnl_rp)
                 self.state["position_capital"] = 0.0
                 self.state["status"]           = "IDLE"
                 self.state["buy_price"]        = 0.0
@@ -212,11 +212,11 @@ class SMCIndependentTrader:
         elif self.state["status"] == "IDLE":
             if is_bull_entry_valid:
                 self.state["status"]           = "IN_POSITION"
-                self.state["position_capital"] = self.state["balance"]
-                self.state["buy_price"]        = current_price
+                self.state["position_capital"] = float(self.state["balance"])
+                self.state["buy_price"]        = float(current_price)
                 self.state["buy_time"]         = str(current_time)
-                self.state["tp"]               = tp_price
-                self.state["sl"]               = sl_price
+                self.state["tp"]               = float(tp_price)
+                self.state["sl"]               = float(sl_price)
                 save_state(self.state)
 
                 score_str = ""
@@ -285,24 +285,25 @@ async def main():
         df_1h['atr'] = df_1h['tr'].rolling(window=14).mean()
 
         # Deteksi Signal Sweep di 1H
-        avg_vol  = df_1h['volume'].iloc[-21:-1].median()
+        avg_vol  = float(df_1h['volume'].iloc[-21:-1].median())
         curr_idx = -2
         prev_idx = -3
         c        = df_1h.iloc[curr_idx]
         p        = df_1h.iloc[prev_idx]
+        latest_c = df_1h.iloc[-1]  # Candle running terbaru
         
         candle_range   = c['high'] - c['low']
         lower_wick     = min(c['close'], c['open']) - c['low']
         upper_wick     = c['high'] - max(c['close'], c['open'])
         vol_spike_smc  = c['volume'] > (avg_vol * VOL_MULTIPLIER_SMC)
 
-        raw_bull_sweep = (lower_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] >= p['low'])
-        raw_bear_sweep = (upper_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] <= p['high'])
+        raw_bull_sweep = bool((lower_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] >= p['low']))
+        raw_bear_sweep = bool((upper_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] <= p['high']))
 
-        harga_idr = c['close'] * usd_idr
-        high_idr  = c['high'] * usd_idr
-        low_idr   = c['low'] * usd_idr
-        atr_idr   = df_1h['atr'].iloc[curr_idx] * usd_idr
+        harga_idr = float(c['close'] * usd_idr)
+        high_idr  = float(max(c['high'], latest_c['high']) * usd_idr) # Pakai high tertinggi dari closed & running candle
+        low_idr   = float(min(c['low'], latest_c['low']) * usd_idr)   # Pakai low terendah dari closed & running candle
+        atr_idr   = float(df_1h['atr'].iloc[curr_idx] * usd_idr)
         
         # Kalkulasi Swing High & Swing Low 4H
         swing          = deteksi_swing_4h(df_4h, window=7)
@@ -310,21 +311,21 @@ async def main():
         swing_low_idr  = swing['swing_low'] * usd_idr
         
         # Perhitungan SL & TP Swing
-        sl_bullish = swing_low_idr - (0.5 * atr_idr)
-        tp_bullish = swing_high_idr
+        sl_bullish = float(swing_low_idr - (0.5 * atr_idr))
+        tp_bullish = float(swing_high_idr)
 
         # Filter Pengaman
         if tp_bullish <= harga_idr * 1.015:
-            tp_bullish = harga_idr + (3.5 * atr_idr)
+            tp_bullish = float(harga_idr + (3.5 * atr_idr))
             
         if sl_bullish >= harga_idr * 0.985:
-            sl_bullish = harga_idr - (1.8 * atr_idr)
+            sl_bullish = float(harga_idr - (1.8 * atr_idr))
         
         # EVALUASI SINYAL DENGAN SCORING SYSTEM
         is_bull_entry_valid = False
         score_info          = None
-        ema9_now            = df_1h['ema9'].iloc[curr_idx]
-        ema21_now           = df_1h['ema21'].iloc[curr_idx]
+        ema9_now            = float(df_1h['ema9'].iloc[curr_idx])
+        ema21_now           = float(df_1h['ema21'].iloc[curr_idx])
 
         if raw_bull_sweep:
             score, rrr, breakdown = hitung_skor_smc(
@@ -334,9 +335,9 @@ async def main():
 
             if score >= MIN_SCORE_ENTRY:
                 is_bull_entry_valid = True
-                print(f"   🎯 [SMC SKOR PASS] Entry Disetujui! Skor: {score}/{MIN_SCORE_ENTRY}")
+                print(f"    🎯 [SMC SKOR PASS] Entry Disetujui! Skor: {score}/{MIN_SCORE_ENTRY}")
             else:
-                print(f"   ⚠️ [SMC SKOR FAIL] Sinyal Bull Sweep Terdeteksi Tapi Skor ({score}) < {MIN_SCORE_ENTRY}. Dibatalkan.")
+                print(f"    ⚠️ [SMC SKOR FAIL] Sinyal Bull Sweep Terdeteksi Tapi Skor ({score}) < {MIN_SCORE_ENTRY}. Dibatalkan.")
 
         now_w_ib_str = now_wib.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -349,7 +350,7 @@ async def main():
                 "symbol": TARGET_SYMBOL,
                 "signal_type": signal_type_export,
                 "score": score_info[0] if score_info else 0,
-                "rrr": score_info[1] if score_info else 0,
+                "rrr": score_info[1] if score_info else 0.0,
                 "current_price": harga_idr,
                 "high_price": high_idr,
                 "low_price": low_idr,
