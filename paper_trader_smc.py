@@ -1,9 +1,9 @@
 """
 ========================================================
-   KRIPTO BOT — Smart Money Concept (SMC) Paper Trader
-   Strategi: Liquidity Sweep (1H) + Swing Structure (4H)
-   Target  : Khusus ETH-IDR (Pasar Spot / Buy Only)
-   Versi   : 4.1.0 (Fixed High-Precision Exit & JSON Safety)
+   KRIPTO BOT — SMC Swing Edition (Multi-Asset Paper Trading)
+   Strategi: Smart Money Concepts (CHoCH, BOS, Order Block, Swing 4H)
+   Market  : MURNI SPOT 100% (Multi-Asset Watchlist)
+   Versi   : 4.2.0 (Multi-Asset Scanner & JSON Safety Fix)
 ========================================================
 """
 
@@ -22,364 +22,311 @@ CHAT_ID             = os.getenv("TELEGRAM_CHAT_ID")
 
 INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_smc.json"
-SIGNAL_FILE         = "signal_smc.json"  # File sinyal untuk dibaca bot AGR
-TARGET_SYMBOL       = "ETH/USDT"
-TARGET_PAIR_NAME    = "ETH-IDR"
+SIGNAL_FILE         = "signal_smc.json"
 FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (1.3% per siklus roundtrip)
+MIN_SCORE_ENTRY     = 70   # Batas minimal skor kelayakan entry SMC
 
-# Parameter Skoring SMC
-VOL_MULTIPLIER_SMC  = 1.5
-MIN_SCORE_ENTRY     = 70   # Batas minimal skor kelayakan entry SMC (0 - 100)
+# Watchlist Multi-Asset Spot
+WATCHLIST = [
+    {"symbol": "BTC/USDT", "pair": "BTC-IDR"},
+    {"symbol": "ETH/USDT", "pair": "ETH-IDR"},
+    {"symbol": "SOL/USDT", "pair": "SOL-IDR"},
+    {"symbol": "ADA/USDT", "pair": "ADA-IDR"},
+    {"symbol": "XRP/USDT", "pair": "XRP-IDR"}
+]
 
-# --- MANAJEMEN STATE PAPER TRADING SMC ---
+# --- MANAJEMEN STATE ---
 def load_state():
+    default_state = {
+        "cash_idr": INITIAL_CAPITAL_IDR,
+        "active_position": None, 
+        "history": [],
+        "stats": {"total_trades": 0, "wins": 0, "losses": 0, "total_pnl_idr": 0.0}
+    }
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, 'r') as f:
                 state = json.load(f)
-                if "position_capital" not in state:
-                    state["position_capital"] = 0.0
+                if "cash_idr" not in state: state["cash_idr"] = INITIAL_CAPITAL_IDR
+                if "active_position" not in state: state["active_position"] = None
+                if "history" not in state: state["history"] = []
+                if "stats" not in state: state["stats"] = {"total_trades": 0, "wins": 0, "losses": 0, "total_pnl_idr": 0.0}
                 return state
         except Exception:
             pass
-    return {
-        "status": "IDLE",
-        "balance": INITIAL_CAPITAL_IDR,
-        "position_capital": 0.0,
-        "buy_price": 0.0,
-        "buy_time": "",
-        "tp": 0.0,
-        "sl": 0.0,
-        "total_trades": 0,
-        "wins": 0,
-        "losses": 0
-    }
+    return default_state
 
 def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f, indent=4)
 
 def save_signal(signal_data):
-    """Menulis sinyal SMC ke JSON agar bisa dibaca oleh Bot AGR"""
     try:
         with open(SIGNAL_FILE, 'w') as f:
             json.dump(signal_data, f, indent=4)
     except Exception as e:
-        print(f"Gagal menyimpan signal SMC: {e}")
+        print(f"Gagal menyimpan signal_smc.json: {e}")
 
-def get_usd_idr() -> float:
+def get_usd_idr():
     try:
         response = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
         return float(response.json()['ticker']['last'])
     except Exception:
         return 18000.0
 
-# --- FUNGSI DETEKSI SWING 4H ---
 def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
     swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
     swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
     return {'swing_high': swing_high, 'swing_low': swing_low}
 
-# --- FUNGSI SKORING KUALITAS SMC ---
-def hitung_skor_smc(c, avg_vol, ema9_now, ema21_now, harga_idr, sl_price, tp_price):
+def hitung_skor_smc(choch, bos, mitigation, rrr, volume_spike):
     score = 0
     breakdown = []
-
-    # 1. Kualitas Liquidity Sweep / Lower Wick Ratio (30 Poin)
-    candle_range = c['high'] - c['low']
-    lower_wick = min(c['close'], c['open']) - c['low']
-    wick_ratio = (lower_wick / candle_range) if candle_range > 0 else 0
-
-    if wick_ratio >= 0.50:
-        score += 30
-        breakdown.append(f"• Liquidity Sweep Sangat Kuat (Wick {wick_ratio*100:.0f}%) (+30)")
-    elif wick_ratio >= 0.35:
-        score += 20
-        breakdown.append(f"• Liquidity Sweep Valid (Wick {wick_ratio*100:.0f}%) (+20)")
-
-    # 2. Kekuatan Volume Spike (25 Poin)
-    vol_ratio = (c['volume'] / avg_vol) if avg_vol > 0 else 0
-    if vol_ratio >= 2.0:
-        score += 25
-        breakdown.append(f"• Volume Spike Sangat Tinggi ({vol_ratio:.1f}x) (+25)")
-    elif vol_ratio >= 1.5:
-        score += 15
-        breakdown.append(f"• Volume Spike Valid ({vol_ratio:.1f}x) (+15)")
-
-    # 3. Keselarasan Tren EMA 1H (20 Poin)
-    if ema9_now > ema21_now:
-        score += 20
-        breakdown.append("• Tren EMA 1H Bullish (+20)")
-    elif c['close'] > ema21_now:
-        score += 10
-        breakdown.append("• Harga di atas EMA21 1H (+10)")
-
-    # 4. Risk-to-Reward Ratio / RRR (25 Poin)
-    risk = harga_idr - sl_price
-    reward = tp_price - harga_idr
-    rrr = (reward / risk) if risk > 0 else 0.0
-
-    if rrr >= 2.0:
-        score += 25
-        breakdown.append(f"• RRR Sangat Ideal ({rrr:.2f} >= 2.0) (+25)")
-    elif rrr >= 1.5:
-        score += 15
-        breakdown.append(f"• RRR Cukup Ideal ({rrr:.2f} >= 1.5) (+15)")
+    
+    if choch:
+        score += 35
+        breakdown.append("• Konfirmasi CHoCH Valid (+35)")
     else:
-        breakdown.append(f"• RRR Kurang Ideal ({rrr:.2f} < 1.5) (+0)")
+        breakdown.append("• Tanpa CHoCH (+0)")
+        
+    if bos:
+        score += 25
+        breakdown.append("• Struktur BOS Terbentuk (+25)")
+    else:
+        breakdown.append("• Tanpa BOS (+0)")
+        
+    if mitigation:
+        score += 20
+        breakdown.append("• Area Mitigasi / Order Block Tersentuh (+20)")
+    else:
+        breakdown.append("• Belum Menyentuh OB (+0)")
+        
+    if volume_spike:
+        score += 10
+        breakdown.append("• Lonjakan Volume Konfirmasi (+10)")
+    else:
+        breakdown.append("• Volume Standar (+0)")
+        
+    if rrr >= 2.0:
+        score += 10
+        breakdown.append(f"• RRR Ideal ({rrr:.2f} >= 2.0) (+10)")
+    else:
+        breakdown.append(f"• RRR Cukup ({rrr:.2f} < 2.0) (+0)")
+        
+    return min(score, 100), breakdown
 
-    final_score = min(score, 100)
-    return final_score, rrr, breakdown
-
-# --- KELAS TRADER INDEPENDEN SMC ---
-class SMCIndependentTrader:
+class SmcPaperTrader:
     def __init__(self):
         self.state = load_state()
 
-    def process_signal(self, raw_bear_sweep, is_bull_entry_valid, current_price, high_price, low_price, 
-                       current_time, sl_price, tp_price, score_info=None):
-        msg = None
-        
-        # =========================================================
-        # 1. EVALUASI EXIT POSISI SPOT (IN_POSITION)
-        # =========================================================
-        if self.state["status"] == "IN_POSITION":
-            buy_p = self.state["buy_price"]
-            tp    = self.state["tp"]
-            sl    = self.state["sl"]
+    def process(self, target_pair_name, signal_type, current_price, high_price, low_price, 
+                current_time, sl_price, tp_price, score_info=None):
+        pos = self.state.get("active_position")
 
-            position_cap = self.state.get("position_capital", self.state["balance"])
+        if pos:
+            active_pair = pos.get("pair", "ETH-IDR")
+            if active_pair != target_pair_name:
+                return None  # Skip jika sedang memproses koin lain selain yang sedang di-hold
 
-            is_tp          = high_price >= tp
-            is_sl          = low_price <= sl
-            is_bear_signal = raw_bear_sweep  # Emergency Exit dari Raw Bear Sweep
+            entry_p = pos["entry_price_idr"]
+            amount  = pos["amount"]
+            sl      = pos["sl"]
+            tp      = pos["tp"]
+            strat   = pos.get("strategy", "SMC")
+            
+            is_loss = low_price <= sl
+            is_win  = high_price >= tp
+            
+            if is_loss or is_win:
+                exit_reason = "STOP LOSS 🛑" if is_loss else "TAKE PROFIT 🎯"
+                exit_price  = sl if is_loss else tp
 
-            if is_tp or is_sl or is_bear_signal:
-                if is_sl:
-                    status_title = "🔴 STOP LOSS (SWING 4H)"
-                    reason       = "Stop Loss (Swing Low 4H)"
-                    exit_price   = sl
-                elif is_tp:
-                    status_title = "🟢 TAKE PROFIT (SWING 4H)"
-                    reason       = "Target TP (Swing High 4H)"
-                    exit_price   = tp
-                else:
-                    status_title = "⚠️ EMERGENCY EXIT (SMC)"
-                    reason       = "Sinyal BEAR_SWEEP Terdeteksi"
-                    exit_price   = current_price
-
-                gross_pct = (exit_price - buy_p) / buy_p
-                net_pct   = gross_pct - FEE_TAX_RATE
-                pnl_rp    = position_cap * net_pct
+                gross_val = exit_price * amount
+                fee_tax   = gross_val * FEE_TAX_RATE
+                net_val   = gross_val - fee_tax
                 
-                self.state["balance"]          = float(position_cap + pnl_rp)
-                self.state["position_capital"] = 0.0
-                self.state["status"]           = "IDLE"
-                self.state["buy_price"]        = 0.0
-                self.state["tp"]               = 0.0
-                self.state["sl"]               = 0.0
-                self.state["total_trades"]    += 1
-
-                if pnl_rp > 0:
-                    self.state["wins"] += 1
-                else:
-                    self.state["losses"] += 1
-
-                win_rate = (self.state["wins"] / self.state["total_trades"]) * 100 if self.state["total_trades"] > 0 else 0
-
-                msg = (
-                    f"🧪 *[PAPER TRADING - SMC SWING]* {TARGET_PAIR_NAME}\n"
-                    f"──────────────────────────────\n"
-                    f"Status    : {status_title}\n"
-                    f"• Alasan  : {reason}\n"
-                    f"• Harga In: Rp {buy_p:,.0f}\n"
-                    f"• Harga Out: Rp {exit_price:,.0f}\n"
-                    f"• P/L     : {net_pct*100:+.2f}% (Rp {pnl_rp:+,.0f})\n"
-                    f"• Saldo   : Rp {self.state['balance']:,.0f}\n"
-                    f"• Win Rate: {win_rate:.1f}% ({self.state['wins']}/{self.state['total_trades']} Trade)"
-                )
+                modal_val = entry_p * amount
+                pnl_val   = net_val - modal_val
+                pnl_pct   = (pnl_val / modal_val) * 100
+                status    = "WIN" if pnl_val > 0 else "LOSS"
+                
+                self.state["cash_idr"] += float(net_val)
+                self.state["history"].append({
+                    "pair": active_pair,
+                    "strategy": strat,
+                    "entry_price": float(entry_p),
+                    "exit_price": float(exit_price),
+                    "pnl_pct": round(float(pnl_pct), 2),
+                    "pnl_idr": round(float(pnl_val), 2),
+                    "status": status,
+                    "entry_time": pos["entry_time"],
+                    "exit_time": current_time
+                })
+                
+                self.state["stats"]["total_trades"] += 1
+                if status == "WIN": self.state["stats"]["wins"] += 1
+                else: self.state["stats"]["losses"] += 1
+                self.state["stats"]["total_pnl_idr"] = round(float(self.state["stats"]["total_pnl_idr"] + pnl_val), 2)
+                
+                self.state["active_position"] = None
                 save_state(self.state)
-                return msg
-
-            if is_bull_entry_valid:
-                print(f"    🔒 [GUARD] Sinyal BULL_SWEEP diabaikan! Posisi SMC {TARGET_PAIR_NAME} masih IN_POSITION.")
-
+                
+                stats = self.state["stats"]
+                win_rate = (stats["wins"] / stats["total_trades"]) * 100 if stats["total_trades"] > 0 else 0
+                
+                return (
+                    f"🧪 *[PAPER TRADING - SMC EXIT]* {active_pair}\n"
+                    f"──────────────────────────────\n"
+                    f"Alasan    : {exit_reason}\n"
+                    f"P/L       : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n"
+                    f"Win Rate  : {win_rate:.1f}% | Total P/L: Rp {stats['total_pnl_idr']:+,.0f}"
+                )
             return None
 
-        # =========================================================
-        # 2. EVALUASI ENTRY POSISI SPOT (IDLE)
-        # =========================================================
-        elif self.state["status"] == "IDLE":
-            if is_bull_entry_valid:
-                self.state["status"]           = "IN_POSITION"
-                self.state["position_capital"] = float(self.state["balance"])
-                self.state["buy_price"]        = float(current_price)
-                self.state["buy_time"]         = str(current_time)
-                self.state["tp"]               = float(tp_price)
-                self.state["sl"]               = float(sl_price)
+        if signal_type == "BELI" and not pos:
+            cash = self.state["cash_idr"]
+            if cash >= 100_000:
+                amount = cash / current_price
+                self.state["active_position"] = {
+                    "pair": target_pair_name,
+                    "entry_price_idr": float(current_price),
+                    "amount": float(amount),
+                    "sl": float(sl_price),
+                    "tp": float(tp_price),
+                    "strategy": "SMC Order Block + Swing 4H",
+                    "entry_time": current_time
+                }
+                self.state["cash_idr"] = 0.0
                 save_state(self.state)
-
+                
                 score_str = ""
                 if score_info:
-                    score, rrr, breakdown = score_info
-                    score_str = (
-                        f"📊 *SKOR ENTRY SMC*: `{score}/100` (Min: {MIN_SCORE_ENTRY})\n"
-                        f"*Rincian Skoring*:\n" + "\n".join(breakdown) + "\n"
-                        f"──────────────────────────────\n"
-                    )
+                    sc, breakdown = score_info
+                    score_str = f"Skor Setup: `{sc}/100`\n" + "\n".join(breakdown) + "\n"
 
-                msg = (
-                    f"🧪 *[PAPER TRADING - SMC SWING]* {TARGET_PAIR_NAME}\n"
+                return (
+                    f"🧪 *[PAPER TRADING - SMC ENTRY]* {target_pair_name}\n"
                     f"──────────────────────────────\n"
-                    f"Strategi  : Sweep 1H + Swing 4H (Spot)\n"
                     f"{score_str}"
-                    f"Modal In  : Rp {self.state['position_capital']:,.0f}\n"
+                    f"Modal In  : Rp {cash:,.0f}\n"
                     f"Harga In  : Rp {current_price:,.0f}\n"
-                    f"Target TP : Rp {tp_price:,.0f} (Swing High 4H)\n"
-                    f"Batas SL  : Rp {sl_price:,.0f} (Swing Low 4H)"
+                    f"TP Target : Rp {tp_price:,.0f}\n"
+                    f"SL Batas  : Rp {sl_price:,.0f}"
                 )
-                return msg
-
         return None
 
-# --- MAIN EXECUTOR ---
 async def main():
-    print("DEBUG: Menjalankan Paper Trader SMC Swing 4H + Scoring System (ETH-IDR Spot)...")
-    exchange = ccxt.kucoin({
-        'enableRateLimit': True,
-        'options': {'defaultType': 'spot'},
-        'timeout': 30000
-    })
-    
+    print("DEBUG: Menjalankan Paper Trader SMC Multi-Asset Scanner...")
+    exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
     try:
         exchange.load_markets()
     except Exception as e:
         print(f"Gagal memuat market: {e}")
         return
 
-    bot     = Bot(token=TOKEN)
+    bot = Bot(token=TOKEN)
     usd_idr = get_usd_idr()
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
+    now_str = now_wib.strftime('%Y-%m-%d %H:%M:%S')
     
-    trader = SMCIndependentTrader()
-    
-    try:
-        # Pull Data Multi-Timeframe: 1H & 4H
-        bars_1h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='1h', limit=50)
-        bars_4h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='4h', limit=30)
-        
-        if len(bars_1h) < 40 or len(bars_4h) < 15:
-            return
+    pt_smc = SmcPaperTrader()
+    candidates = []
+
+    for item in WATCHLIST:
+        symbol = item["symbol"]
+        pair_name = item["pair"]
+        try:
+            bars_1h = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
+            bars_4h = exchange.fetch_ohlcv(symbol, timeframe='4h', limit=30)
+            if len(bars_1h) < 40 or len(bars_4h) < 15:
+                continue
+
+            df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
+            df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
             
-        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
-        df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
-        
-        # Indikator Tambahan 1H (EMA & ATR)
-        df_1h['ema9']  = df_1h['close'].ewm(span=9, adjust=False).mean()
-        df_1h['ema21'] = df_1h['close'].ewm(span=21, adjust=False).mean()
-
-        tr0 = df_1h['high'] - df_1h['low']
-        tr1 = (df_1h['high'] - df_1h['close'].shift(1)).abs()
-        tr2 = (df_1h['low']  - df_1h['close'].shift(1)).abs()
-        df_1h['tr']  = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1)
-        df_1h['atr'] = df_1h['tr'].rolling(window=14).mean()
-
-        # Deteksi Signal Sweep di 1H
-        avg_vol  = float(df_1h['volume'].iloc[-21:-1].median())
-        curr_idx = -2
-        prev_idx = -3
-        c        = df_1h.iloc[curr_idx]
-        p        = df_1h.iloc[prev_idx]
-        latest_c = df_1h.iloc[-1]  # Candle running terbaru
-        
-        candle_range   = c['high'] - c['low']
-        lower_wick     = min(c['close'], c['open']) - c['low']
-        upper_wick     = c['high'] - max(c['close'], c['open'])
-        vol_spike_smc  = c['volume'] > (avg_vol * VOL_MULTIPLIER_SMC)
-
-        raw_bull_sweep = bool((lower_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] >= p['low']))
-        raw_bear_sweep = bool((upper_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] <= p['high']))
-
-        harga_idr = float(c['close'] * usd_idr)
-        high_idr  = float(max(c['high'], latest_c['high']) * usd_idr) # Pakai high tertinggi dari closed & running candle
-        low_idr   = float(min(c['low'], latest_c['low']) * usd_idr)   # Pakai low terendah dari closed & running candle
-        atr_idr   = float(df_1h['atr'].iloc[curr_idx] * usd_idr)
-        
-        # Kalkulasi Swing High & Swing Low 4H
-        swing          = deteksi_swing_4h(df_4h, window=7)
-        swing_high_idr = swing['swing_high'] * usd_idr
-        swing_low_idr  = swing['swing_low'] * usd_idr
-        
-        # Perhitungan SL & TP Swing
-        sl_bullish = float(swing_low_idr - (0.5 * atr_idr))
-        tp_bullish = float(swing_high_idr)
-
-        # Filter Pengaman
-        if tp_bullish <= harga_idr * 1.015:
-            tp_bullish = float(harga_idr + (3.5 * atr_idr))
+            df_1h['atr'] = (df_1h['high'] - df_1h['low']).rolling(14).mean()
+            df_1h['avg_vol'] = df_1h['volume'].rolling(20).mean().shift(1)
             
-        if sl_bullish >= harga_idr * 0.985:
-            sl_bullish = float(harga_idr - (1.8 * atr_idr))
-        
-        # EVALUASI SINYAL DENGAN SCORING SYSTEM
-        is_bull_entry_valid = False
-        score_info          = None
-        ema9_now            = float(df_1h['ema9'].iloc[curr_idx])
-        ema21_now           = float(df_1h['ema21'].iloc[curr_idx])
+            curr = df_1h.iloc[-2]
+            latest = df_1h.iloc[-1]
+            
+            harga_idr = float(curr['close'] * usd_idr)
+            high_idr  = float(max(curr['high'], latest['high']) * usd_idr)
+            low_idr   = float(min(curr['low'], latest['low']) * usd_idr)
+            atr_idr   = float(curr['atr'] * usd_idr)
+            
+            swing = deteksi_swing_4h(df_4h, window=7)
+            sl_price = float(swing['swing_low'] * usd_idr - (0.5 * atr_idr))
+            tp_price = float(swing['swing_high'] * usd_idr)
+            
+            if tp_price <= harga_idr * 1.015: tp_price = float(harga_idr + (3.5 * atr_idr))
+            if sl_price >= harga_idr * 0.985: sl_price = float(harga_idr - (1.8 * atr_idr))
 
-        if raw_bull_sweep:
-            score, rrr, breakdown = hitung_skor_smc(
-                c, avg_vol, ema9_now, ema21_now, harga_idr, sl_bullish, tp_bullish
-            )
-            score_info = (score, rrr, breakdown)
+            risk = harga_idr - sl_price
+            reward = tp_price - harga_idr
+            rrr = (reward / risk) if risk > 0 else 0
 
+            # Deteksi Sederhana SMC
+            choch = bool(curr['close'] > curr['open'] and curr['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.5))
+            bos = bool(curr['close'] > df_1h['high'].iloc[-5:-2].max())
+            mitigation = bool(low_idr <= (swing['swing_low'] * usd_idr * 1.01))
+            vol_spike = bool(curr['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.8))
+
+            score, breakdown = hitung_skor_smc(choch, bos, mitigation, rrr, vol_spike)
+            
             if score >= MIN_SCORE_ENTRY:
-                is_bull_entry_valid = True
-                print(f"    🎯 [SMC SKOR PASS] Entry Disetujui! Skor: {score}/{MIN_SCORE_ENTRY}")
-            else:
-                print(f"    ⚠️ [SMC SKOR FAIL] Sinyal Bull Sweep Terdeteksi Tapi Skor ({score}) < {MIN_SCORE_ENTRY}. Dibatalkan.")
+                candidates.append({
+                    "pair": pair_name,
+                    "symbol": symbol,
+                    "signal": "BELI",
+                    "score": score,
+                    "price": harga_idr,
+                    "high": high_idr,
+                    "low": low_idr,
+                    "sl": sl_price,
+                    "tp": tp_price,
+                    "breakdown": breakdown
+                })
+        except Exception as ex:
+            print(f"Error scan {symbol}: {ex}")
 
-        now_w_ib_str = now_wib.strftime('%Y-%m-%d %H:%M:%S')
+    # Urutkan berdasarkan skor tertinggi
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    
+    # Proses posisi aktif atau ambil kandidat terbaik juara #1
+    active_pos = pt_smc.state.get("active_position")
+    notif_sent = False
 
-        # EXPORT SIGNAL UNTUK BOT AGR (HANYA JIKA ADA SINYAL AKTIF)
-        signal_type_export = "BULL_SWEEP" if is_bull_entry_valid else ("BEAR_SWEEP" if raw_bear_sweep else None)
-        
-        if signal_type_export:
-            signal_payload = {
-                "timestamp": now_w_ib_str,
-                "symbol": TARGET_SYMBOL,
-                "signal_type": signal_type_export,
-                "score": score_info[0] if score_info else 0,
-                "rrr": score_info[1] if score_info else 0.0,
-                "current_price": harga_idr,
-                "high_price": high_idr,
-                "low_price": low_idr,
-                "sl_price": sl_bullish,
-                "tp_price": tp_bullish
-            }
-            save_signal(signal_payload)
+    if active_pos:
+        # Cek exit untuk koin yang sedang di-hold
+        active_pair = active_pos["pair"]
+        # Ambil data terbaru untuk koin aktif
+        for item in WATCHLIST:
+            if item["pair"] == active_pair:
+                bars_1h = exchange.fetch_ohlcv(item["symbol"], timeframe='1h', limit=10)
+                df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
+                curr = df_1h.iloc[-2]
+                latest = df_1h.iloc[-1]
+                h_idr = float(max(curr['high'], latest['high']) * usd_idr)
+                l_idr = float(min(curr['low'], latest['low']) * usd_idr)
+                c_idr = float(curr['close'] * usd_idr)
+                
+                msg = pt_smc.process(active_pair, "CHECK_EXIT", c_idr, h_idr, l_idr, now_str, 0, 0)
+                if msg:
+                    await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
+                    notif_sent = True
+                break
+    elif candidates:
+        top = candidates[0]
+        save_signal({"timestamp": now_str, **top})
+        msg = pt_smc.process(top["pair"], top["signal"], top["price"], top["high"], top["low"], now_str, top["sl"], top["tp"], (top["score"], top["breakdown"]))
+        if msg:
+            await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
+            print(f"    🧪 Notif Entry SMC Terkirim untuk Juara #1 ({top['pair']})")
+            notif_sent = True
 
-        # PROSES SIMULASI TRADING
-        pt_msg = trader.process_signal(
-            raw_bear_sweep=raw_bear_sweep,
-            is_bull_entry_valid=is_bull_entry_valid,
-            current_price=harga_idr,
-            high_price=high_idr,
-            low_price=low_idr,
-            current_time=now_w_ib_str,
-            sl_price=sl_bullish,
-            tp_price=tp_bullish,
-            score_info=score_info
-        )
-        
-        if pt_msg:
-            await bot.send_message(chat_id=CHAT_ID, text=pt_msg, parse_mode='Markdown')
-            print("    🧪 Notif Simulasi SMC Swing ETH-IDR Terkirim")
-        else:
-            print("    — SMC Swing ETH-IDR: Tidak ada aksi (Posisi aktif / Sinyal nihil / Skor tidak memenuhi)")
-
-    except Exception as e:
-        print(f"Error pada paper trader SMC: {e}")
+    if not notif_sent:
+        print("    — SMC Scanner: Tidak ada posisi aktif atau sinyal valid yang memenuhi skor.")
 
 if __name__ == '__main__':
     asyncio.run(main())
