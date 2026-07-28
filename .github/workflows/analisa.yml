@@ -1,0 +1,33 @@
+name: Analisa Manual On-Demand
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: 'Masukkan Simbol Koin (Contoh: BTC, ETH, SOL, SUI)'
+        required: true
+        default: 'BTC/USDT'
+
+jobs:
+  manual-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install ccxt pandas requests python-telegram-bot
+
+      - name: Run Analysis Script
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_SYMBOL: ${{ github.event.inputs.symbol }}
+        run: |
+          python analisa.py
