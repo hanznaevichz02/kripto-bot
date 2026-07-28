@@ -4,6 +4,7 @@
    Strategi: Golden Cross & Pullback Bounce + Swing 4H
    Target  : Khusus ETH-IDR (Fair Head-to-Head vs SMC)
    Market  : MURNI SPOT 100%
+   Versi   : 3.8.0 (Fixed Vol Window, State Safety & Signal Export)
 ========================================================
 """
 
@@ -23,28 +24,46 @@ CHAT_ID             = os.getenv("TELEGRAM_CHAT_ID")
 VOL_MULTIPLIER      = 2.0
 INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_tech.json"
+SIGNAL_FILE         = "signal_tech.json"  # File sinyal untuk dibaca bot AGR / Monitoring
 TARGET_SYMBOL       = "ETH/USDT"
 TARGET_PAIR_NAME    = "ETH-IDR"
 FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (1.3% per siklus roundtrip)
 
 # --- MANAJEMEN STATE PAPER TRADING ---
 def load_state():
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, 'r') as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {
+    default_state = {
         "cash_idr": INITIAL_CAPITAL_IDR,
         "active_position": None, 
         "history": [],
         "stats": {"total_trades": 0, "wins": 0, "losses": 0, "total_pnl_idr": 0.0}
     }
+    
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, 'r') as f:
+                state = json.load(f)
+                # FIX BUG 2: Proteksi key yang hilang jika membaca file lama
+                if "cash_idr" not in state:
+                    state["cash_idr"] = INITIAL_CAPITAL_IDR
+                if "active_position" not in state:
+                    state["active_position"] = None
+                if "history" not in state:
+                    state["history"] = []
+                if "stats" not in state:
+                    state["stats"] = {"total_trades": 0, "wins": 0, "losses": 0, "total_pnl_idr": 0.0}
+                return state
+        except Exception:
+            pass
+    return default_state
 
 def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f, indent=4)
+
+def save_signal(signal_data):
+    """Menulis sinyal Teknikal ke JSON untuk integrasi monitoring / Bot AGR"""
+    with open(SIGNAL_FILE, 'w') as f:
+        json.dump(signal_data, f, indent=4)
 
 # --- FUNGSI HELPER ---
 def get_usd_idr():
@@ -58,8 +77,8 @@ def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
     """
     Mencari Swing Low & Swing High dari N candle 4H terakhir.
     """
-    swing_low = df_4h['low'].iloc[-window-1:-1].min()
-    swing_high = df_4h['high'].iloc[-window-1:-1].max()
+    swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
+    swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
     return {'swing_high': swing_high, 'swing_low': swing_low}
 
 # --- KELAS PAPER TRADER TEKNIKAL ---
@@ -74,10 +93,10 @@ class TechnicalPaperTrader:
         # 1. JIKA ADA POSISI AKTIF -> EVALUASI EXIT
         # =========================================================
         if pos:
-            entry_p = pos["entry_price_idr"]
-            amount  = pos["amount"]
-            sl      = pos["sl"]
-            tp      = pos["tp"]
+            entry_p    = pos["entry_price_idr"]
+            amount     = pos["amount"]
+            sl         = pos["sl"]
+            tp         = pos["tp"]
             strat_name = pos.get("strategy", "TECHNICAL")
             
             # Deteksi presisi menggunakan High/Low candle untuk eksekusi wick/jarum
@@ -86,12 +105,13 @@ class TechnicalPaperTrader:
             is_death_exit = signal_type == "JUAL"  # Death Cross Emergency Exit
             
             if is_win or is_loss or is_death_exit:
-                if is_win:
-                    exit_reason = "TAKE PROFIT (SWING 4H) 🎯"
-                    exit_price  = tp
-                elif is_loss:
+                # Evaluasi Stop Loss terlebih dahulu untuk manajemen risiko konservatif
+                if is_loss:
                     exit_reason = "STOP LOSS (SWING 4H) 🛑"
                     exit_price  = sl
+                elif is_win:
+                    exit_reason = "TAKE PROFIT (SWING 4H) 🎯"
+                    exit_price  = tp
                 else:
                     exit_reason = "DEATH CROSS EXIT ⚠️"
                     exit_price  = current_price
@@ -157,7 +177,7 @@ class TechnicalPaperTrader:
 
             # PROTEKSI: Jika masih ada posisi ACTIVE & ada sinyal Beli baru, abaikan
             if signal_type in ["BELI", "BELI_PULLBACK"]:
-                print(f"  🔒 [GUARD] Sinyal {signal_type} diabaikan! Posisi TEKNIKAL {TARGET_PAIR_NAME} masih ACTIVE.")
+                print(f"   🔒 [GUARD] Sinyal {signal_type} diabaikan! Posisi TEKNIKAL {TARGET_PAIR_NAME} masih ACTIVE.")
 
             return None
 
@@ -225,8 +245,9 @@ async def main():
         if len(bars_1h) < 40 or len(bars_4h) < 15:
             return
             
-        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        # FIX BUG 3: Tipe data homogen float
+        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
+        df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
         
         # 1. Indikator EMA & ATR di 1H
         df_1h['ema9']  = df_1h['close'].ewm(span=9, adjust=False).mean()
@@ -238,7 +259,8 @@ async def main():
         df_1h['tr']  = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1)
         df_1h['atr'] = df_1h['tr'].rolling(window=14).mean()
         
-        df_1h['avg_vol'] = df_1h['volume'].rolling(window=3).mean().shift(1)
+        # FIX BUG 1: Window MA Volume diperbaiki dari 3 menjadi 20
+        df_1h['avg_vol'] = df_1h['volume'].rolling(window=20).mean().shift(1)
         
         curr_idx = -2
         prev_idx = -3
@@ -296,22 +318,37 @@ async def main():
         elif death:
             signal_type = "JUAL"  # Sinyal exit darurat
             
+        now_w_ib_str = now_wib.strftime('%Y-%m-%d %H:%M:%S')
+
+        # EXPORT SIGNAL TEKNIKAL
+        signal_payload = {
+            "timestamp": now_w_ib_str,
+            "symbol": TARGET_SYMBOL,
+            "signal_type": signal_type,
+            "current_price": harga_idr,
+            "high_price": high_idr,
+            "low_price": low_idr,
+            "sl_price": sl_bullish,
+            "tp_price": tp_bullish
+        }
+        save_signal(signal_payload)
+
         # 4. Evaluasi Paper Trading
         pt_msg = pt_tech.process(
             signal_type=signal_type,
             current_price=harga_idr,
             high_price=high_idr,
             low_price=low_idr,
-            current_time=now_wib.strftime('%Y-%m-%d %H:%M:%S'),
+            current_time=now_w_ib_str,
             sl_price=sl_bullish,
             tp_price=tp_bullish
         )
         
         if pt_msg:
             await bot.send_message(chat_id=CHAT_ID, text=pt_msg, parse_mode='Markdown')
-            print("  🧪 Notif Simulasi Teknikal ETH-IDR Terkirim")
+            print("   🧪 Notif Simulasi Teknikal ETH-IDR Terkirim")
         else:
-            print("  — Teknikal ETH-IDR: Tidak ada aksi (Posisi sedang aktif / Sinyal nihil)")
+            print("   — Teknikal ETH-IDR: Tidak ada aksi (Posisi sedang aktif / Sinyal nihil)")
 
     except Exception as e:
         print(f"Error pada paper trader teknikal: {e}")
