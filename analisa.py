@@ -78,7 +78,7 @@ def run_manual_analysis():
         # Penentuan Tren & Target Singkat
         is_bullish = df_1h['ema9'].iloc[curr_idx] > df_1h['ema21'].iloc[curr_idx]
         
-        tren_pendek = "Potensi Naik" if is_bullish else "Potensi Turun"
+        tren_pendek = "Naik" if is_bullish else "Turun"
         
         # Format Singkat 1 Baris
         pred_pendek = f"Turun ke Rp {swing_low:,.0f}" if not is_bullish else f"Naik ke Rp {swing_high:,.0f}"
@@ -90,11 +90,11 @@ def run_manual_analysis():
             f"```text\n"
             f"🔍 [ANALISA] — {PAIR_NAME}\n"
             f"----------------------------------\n"
-            f"• Harga Sekarang  : Rp {harga_idr:,.0f}\n"
+            f"• Harga Sekarang: Rp {harga_idr:,.0f}\n"
             f"\n"
-            f"• Tren Pendek     : {tren_pendek}\n"
-            f"• Jangka Pendek   : {pred_pendek}\n"
-            f"• Jangka Panjang  : {pred_panjang}\n"
+            f"• Tren Pendek   : {tren_pendek}\n"
+            f"• Jangka Pendek : {pred_pendek}\n"
+            f"• Jangka Panjang: {pred_panjang}\n"
             f"```"
         )
         
