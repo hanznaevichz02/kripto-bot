@@ -1,11 +1,11 @@
 {
-    "timestamp": "2026-07-29 03:05:57",
-    "symbol": "AVAX/USDT",
-    "signal_type": "BULL_BREAKOUT",
-    "current_price": 118743.456,
-    "high_price": 119031.712,
-    "low_price": 117788.60800000001,
-    "sl_price": 114159.02742857143,
-    "tp_price": 122207.032,
-    "rrr": 0.76
+    "timestamp": "2026-07-29 04:05:44",
+    "symbol": "LINK/USDT",
+    "signal_type": "BULL_SWEEP",
+    "current_price": 151149.453,
+    "high_price": 151230.5205,
+    "low_price": 150720.696,
+    "sl_price": 147089.38671428573,
+    "tp_price": 156013.503,
+    "rrr": 1.2
 }
