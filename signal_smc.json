@@ -1,10 +1,12 @@
 {
-    "timestamp": "2026-07-28 15:05:49",
+    "timestamp": "2026-07-28 15:31:25",
     "symbol": "ETH/USDT",
     "signal_type": null,
-    "current_price": 33976036.44,
-    "high_price": 34067118.24,
-    "low_price": 33927699.96,
-    "sl_price": 33518143.625142854,
-    "tp_price": 35739235.8
+    "score": 0,
+    "rrr": 0,
+    "current_price": 33983571.6,
+    "high_price": 34074673.6,
+    "low_price": 33935224.4,
+    "sl_price": 33525577.234285716,
+    "tp_price": 35747162.0
 }
