@@ -1,6 +1,14 @@
 {
-    "cash_idr": 970806.2943215563,
-    "active_position": null,
+    "cash_idr": 0.0,
+    "active_position": {
+        "pair": "XRP-IDR",
+        "entry_price_idr": 19209.66992,
+        "amount": 50.53737510142269,
+        "sl": 18792.94396,
+        "tp": 20087.46768,
+        "strategy": "SMC Order Block + Swing 4H",
+        "entry_time": "2026-07-28 23:05:54"
+    },
     "history": [
         {
             "pair": "ETH-IDR",
