@@ -1,12 +1,13 @@
 """
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
-   Versi: 3.7.1 (Async Parallel & Bug Fixed)
+   Versi: 3.8.0 (Multi-Asset Batch Scan, RRR Ranking & JSON Export)
    SPOT MARKET
 ========================================================
 """
 
 import os
+import json
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
@@ -46,7 +47,6 @@ ASSET_LIST: List[str] = [
     'ADA/USDT'
 ]
 
-# FIX ISSUE 2: Menambahkan AVAX/USDT ke FUTURES_MAP
 FUTURES_MAP: Dict[str, str] = {
     'BTC/USDT': 'XBTUSDTM',
     'ETH/USDT': 'ETHUSDTM',
@@ -221,7 +221,11 @@ def analisa(
     if sl_sell <= harga_idr * 1.015:
         sl_sell = harga_idr + (1.8 * atr_idr)
 
-    # FIX ISSUE 1: Menambahkan 'skor': 0.0 secara default di base dict
+    # Hitung RRR (Risk-to-Reward Ratio)
+    risk_buy = max(harga_idr - sl_buy, 1.0)
+    reward_buy = max(tp_buy - harga_idr, 0.0)
+    rrr_buy = round(reward_buy / risk_buy, 2)
+
     base = {
         'harga': harga_idr, 'vol_ratio': vol_ratio,
         'cvd_delta': cvd_delta, 'cvd_naik': cvd_naik,
@@ -230,6 +234,7 @@ def analisa(
         'is_weekend': is_weekend, 'vol_ultra': vol_ultra,
         'sl_buy': sl_buy, 'tp_buy': tp_buy,
         'sl_sell': sl_sell, 'tp_sell': tp_sell,
+        'rrr': rrr_buy, 'high_price': c['high'] * usd_idr, 'low_price': c['low'] * usd_idr,
         'skor': 0.0,
     }
 
@@ -299,7 +304,7 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
         f"[ 3. RISK MANAGEMENT ]\n"
         f"  • {rm_label_1} : {rm_val_1}\n"
         f"  • {rm_label_2} : {rm_val_2}\n"
-        f"  • Skorsing : {s.get('skor', 0.0):.2f} pts\n"
+        f"  • RRR Ratio : {s.get('rrr', 0.0):.2f}x\n"
         f"```\n"
         f"🎯 *ACTION PLAN :* {s['aksi']}\n"
         f"💡 *Insight    :* {ket}"
@@ -408,13 +413,8 @@ async def scan_asset(
             is_porto = symbol in PORTFOLIO
 
             if is_bullish:
-                skor = (5 if hasil.get('vol_ultra') else 2) + hasil['vol_ratio']
-                if hasil['trend_4h'] == 'BULLISH':
-                    skor += 3
-
                 hasil['symbol'] = symbol
-                hasil['skor'] = skor
-                logger.info(f"🎯 Kandidat BELI: {symbol} ({hasil['tipe']}) | Skor: {skor:.2f}")
+                logger.info(f"🎯 Kandidat BELI: {symbol} ({hasil['tipe']}) | RRR: {hasil['rrr']:.2f}x | Vol: {hasil['vol_ratio']}x")
                 return hasil
 
             elif is_porto:
@@ -466,19 +466,38 @@ async def main():
         hasil_scan = await asyncio.gather(*tasks)
         kumpulan_sinyal = [s for s in hasil_scan if s is not None]
 
-        # --- PILIH TOP 2 PROSPEK BELI TERBAIK ---
+        # --- RANKING KANDIDAT (RRR Terbesar -> Tie-Breaker: Vol Ratio Terbesar) ---
+        best_signal = None
         if kumpulan_sinyal:
-            kumpulan_sinyal.sort(key=lambda x: x['skor'], reverse=True)
+            kumpulan_sinyal.sort(key=lambda x: (x.get('rrr', 0.0), x.get('vol_ratio', 0.0)), reverse=True)
             top_prospek = kumpulan_sinyal[:2]
+            best_signal = kumpulan_sinyal[0]
 
             logger.info(f"📢 Mengirim {len(top_prospek)} sinyal BELI teratas dari {len(kumpulan_sinyal)} kandidat...")
 
             for item in top_prospek:
                 pesan = format_pesan(item['symbol'], item)
                 await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
-                logger.info(f"✅ Terkirim: {item['symbol']} (Skor: {item['skor']:.2f})")
+                logger.info(f"✅ Terkirim: {item['symbol']} (RRR: {item['rrr']:.2f}x | Vol: {item['vol_ratio']}x)")
         else:
             logger.info("— Tidak ada sinyal BELI yang valid pada siklus ini.")
+
+        # --- EXPORT FILE STATE SINYAL (signal_smc.json) ---
+        signal_export = {
+            "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
+            "symbol": best_signal['symbol'] if best_signal else "NONE",
+            "signal_type": best_signal['tipe'] if best_signal else None,
+            "current_price": best_signal['harga'] if best_signal else 0.0,
+            "high_price": best_signal['high_price'] if best_signal else 0.0,
+            "low_price": best_signal['low_price'] if best_signal else 0.0,
+            "sl_price": best_signal['sl_buy'] if best_signal else 0.0,
+            "tp_price": best_signal['tp_buy'] if best_signal else 0.0,
+            "rrr": best_signal.get('rrr', 0.0) if best_signal else 0.0
+        }
+
+        with open("signal_smc.json", "w") as f:
+            json.dump(signal_export, f, indent=4)
+        logger.info("📄 File signal_smc.json berhasil diperbarui.")
 
         # --- LAPORAN PORTOFOLIO ---
         if now_wib.hour in JAM_LAPORAN and now_wib.minute < 30:
