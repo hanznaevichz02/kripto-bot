@@ -83,7 +83,7 @@ class HybridPaperTrader:
             tp      = pos["tp"]
             strat_name = pos.get("strategy", "HYBRID")
 
-            # Deteksi presisi menggunakan High/Low candle (agar eksekusi jarum/wick terdeteksi)
+            # Deteksi presisi menggunakan High/Low candle
             is_win        = high_price >= tp
             is_loss       = low_price <= sl
             is_emerg_exit = signal_type == "EXIT_EMERGENCY"  # Death Cross / Bear Sweep
@@ -91,13 +91,13 @@ class HybridPaperTrader:
             if is_win or is_loss or is_emerg_exit:
                 if is_win:
                     exit_reason = "TAKE PROFIT (SWING 4H) 🎯"
-                    exit_price  = tp  # Kena target TP
+                    exit_price  = tp
                 elif is_loss:
                     exit_reason = "STOP LOSS (SWING 4H) 🛑"
-                    exit_price  = sl  # Kena batas SL
+                    exit_price  = sl
                 else:
                     exit_reason = f"EMERGENCY EXIT ({trigger_source}) ⚠️"
-                    exit_price  = current_price  # Keluar di harga saat ini
+                    exit_price  = current_price
 
                 gross_final_val = exit_price * amount
                 fee_tax_amount  = gross_final_val * FEE_TAX_RATE
@@ -133,7 +133,7 @@ class HybridPaperTrader:
                     self.state["stats"]["losses"] += 1
                 self.state["stats"]["total_pnl_idr"] += round(pnl_val, 2)
 
-                # Bersihkan posisi aktif (RESET TO NONE)
+                # Bersihkan posisi aktif
                 self.state["active_position"] = None
                 save_state(self.state)
 
@@ -158,7 +158,7 @@ class HybridPaperTrader:
                 )
                 return msg
 
-            # PROTEKSI UTAMA: Jika posisi masih OPEN dan belum disentuh TP/SL/Emergency, abaikan sinyal Beli baru
+            # PROTEKSI UTAMA: Jika posisi masih OPEN, abaikan sinyal Beli baru
             if signal_type == "BELI":
                 print(f"  🔒 [GUARD] Sinyal BELI ({trigger_source}) diabaikan! Posisi {TARGET_PAIR_NAME} masih OPEN.")
             return None
@@ -248,7 +248,7 @@ async def main():
         # =========================================================
         # 1. ANALISA SMC
         # =========================================================
-        avg_vol_smc   = df_1h['volume'].iloc[-21:-1].median()
+        avg_vol_smc   = df_1h['volume'].iloc[-22:-2].median()  # Fix rentang 20 candle historis
         candle_range  = c['high'] - c['low']
         lower_wick    = min(c['close'], c['open']) - c['low']
         upper_wick    = c['high'] - max(c['close'], c['open'])
@@ -280,7 +280,7 @@ async def main():
         # Pullback Bounce
         tren_bullish    = ema9_now > ema21_now
         sentuh_ema21    = c['low'] <= (ema21_now * 1.002)
-        tutup_hijau     = c['close'] > c['open']
+        tutup_hijau      = c['close'] > c['open']
         tutup_atas_ema9 = c['close'] > ema9_now
         vol_oke_tech    = c['volume'] > df_1h['avg_vol_tech'].iloc[curr_idx]
         pullback_bounce = tren_bullish and sentuh_ema21 and tutup_hijau and tutup_atas_ema9 and vol_oke_tech
