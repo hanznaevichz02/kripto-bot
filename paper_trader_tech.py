@@ -25,7 +25,7 @@ INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_tech.json"
 TARGET_SYMBOL       = "ETH/USDT"
 TARGET_PAIR_NAME    = "ETH-IDR"
-FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68
+FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (1.3% per siklus roundtrip)
 
 # --- MANAJEMEN STATE PAPER TRADING ---
 def load_state():
@@ -67,9 +67,12 @@ class TechnicalPaperTrader:
     def __init__(self):
         self.state = load_state()
 
-    def process(self, signal_type, current_price, current_time, sl_price, tp_price):
-        # 1. Cek Posisi Aktif (Exit Logic: TP / SL / Death Cross)
+    def process(self, signal_type, current_price, high_price, low_price, current_time, sl_price, tp_price):
         pos = self.state.get("active_position")
+
+        # =========================================================
+        # 1. JIKA ADA POSISI AKTIF -> EVALUASI EXIT
+        # =========================================================
         if pos:
             entry_p = pos["entry_price_idr"]
             amount  = pos["amount"]
@@ -77,19 +80,23 @@ class TechnicalPaperTrader:
             tp      = pos["tp"]
             strat_name = pos.get("strategy", "TECHNICAL")
             
-            is_win        = current_price >= tp
-            is_loss       = current_price <= sl
+            # Deteksi presisi menggunakan High/Low candle untuk eksekusi wick/jarum
+            is_win        = high_price >= tp
+            is_loss       = low_price <= sl
             is_death_exit = signal_type == "JUAL"  # Death Cross Emergency Exit
             
             if is_win or is_loss or is_death_exit:
                 if is_win:
                     exit_reason = "TAKE PROFIT (SWING 4H) 🎯"
+                    exit_price  = tp
                 elif is_loss:
                     exit_reason = "STOP LOSS (SWING 4H) 🛑"
+                    exit_price  = sl
                 else:
                     exit_reason = "DEATH CROSS EXIT ⚠️"
+                    exit_price  = current_price
 
-                gross_final_val = current_price * amount
+                gross_final_val = exit_price * amount
                 fee_tax_amount  = gross_final_val * FEE_TAX_RATE
                 net_final_val   = gross_final_val - fee_tax_amount
                 
@@ -106,7 +113,7 @@ class TechnicalPaperTrader:
                     "pair": TARGET_PAIR_NAME,
                     "strategy": strat_name,
                     "entry_price": entry_p,
-                    "exit_price": current_price,
+                    "exit_price": exit_price,
                     "pnl_pct": round(pnl_pct, 2),
                     "pnl_idr": round(pnl_val, 2),
                     "status": status,
@@ -137,7 +144,7 @@ class TechnicalPaperTrader:
                     f"Alasan    : {exit_reason}\n"
                     f"Strategi  : {strat_name}\n"
                     f"Harga In  : Rp {entry_p:,.0f}\n"
-                    f"Harga Out : Rp {current_price:,.0f}\n"
+                    f"Harga Out : Rp {exit_price:,.0f}\n"
                     f"P/L       : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n\n"
                     f"📊 *REKAP TOTAL TEKNIKAL*:\n"
                     f"• Total Trade : {stats['total_trades']}x\n"
@@ -147,10 +154,17 @@ class TechnicalPaperTrader:
                     f"• Sisa Kas    : Rp {self.state['cash_idr']:,.0f}"
                 )
                 return msg
+
+            # PROTEKSI: Jika masih ada posisi ACTIVE & ada sinyal Beli baru, abaikan
+            if signal_type in ["BELI", "BELI_PULLBACK"]:
+                print(f"  🔒 [GUARD] Sinyal {signal_type} diabaikan! Posisi TEKNIKAL {TARGET_PAIR_NAME} masih ACTIVE.")
+
             return None
 
-        # 2. Jika Tidak Ada Posisi Aktif, Cari Sinyal Masuk (Golden Cross / Pullback Bounce)
-        if not pos and signal_type in ["BELI", "BELI_PULLBACK"]:
+        # =========================================================
+        # 2. JIKA TIDAK ADA POSISI AKTIF -> BISA ENTRY BELI
+        # =========================================================
+        if signal_type in ["BELI", "BELI_PULLBACK"]:
             available_cash = self.state["cash_idr"]
             if available_cash >= 100_000:  # Batas minimal alokasi
                 amount = available_cash / current_price
@@ -233,6 +247,8 @@ async def main():
         is_spike_vol = curr['volume'] > (df_1h['avg_vol'].iloc[curr_idx] * VOL_MULTIPLIER)
         
         harga_idr = curr['close'] * usd_idr
+        high_idr  = curr['high'] * usd_idr
+        low_idr   = curr['low'] * usd_idr
         atr_idr   = curr['atr'] * usd_idr
         
         # 2. Kalkulasi Swing High & Swing Low 4H
@@ -284,6 +300,8 @@ async def main():
         pt_msg = pt_tech.process(
             signal_type=signal_type,
             current_price=harga_idr,
+            high_price=high_idr,
+            low_price=low_idr,
             current_time=now_wib.strftime('%Y-%m-%d %H:%M:%S'),
             sl_price=sl_bullish,
             tp_price=tp_bullish
