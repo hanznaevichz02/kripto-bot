@@ -1,0 +1,19 @@
+{
+    "cash_idr": 0.0,
+    "active_position": {
+        "pair": "ETH-IDR",
+        "entry_price_idr": 34137364.38,
+        "amount": 0.02929341553344605,
+        "sl": 33577272.7575,
+        "tp": 35672483.28,
+        "strategy": "SMC Order Block + Swing 4H",
+        "entry_time": "2026-07-28 20:05:51"
+    },
+    "history": [],
+    "stats": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "total_pnl_idr": 0.0
+    }
+}

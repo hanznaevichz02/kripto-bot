@@ -1,11 +1,19 @@
 {
-    "timestamp": "2026-07-28 19:05:39",
-    "symbol": "SOL/USDT",
-    "signal_type": "BULL_SWEEP",
-    "current_price": 1319806.4,
-    "high_price": 1323053.6,
-    "low_price": 1314935.6,
-    "sl_price": 1307235.097142857,
-    "tp_price": 1397739.2000000002,
-    "rrr": 6.2
+    "timestamp": "2026-07-28 20:05:51",
+    "pair": "ETH-IDR",
+    "symbol": "ETH/USDT",
+    "signal": "BELI",
+    "score": 100,
+    "price": 34137364.38,
+    "high": 34153960.26,
+    "low": 33820960.32,
+    "sl": 33577272.7575,
+    "tp": 35672483.28,
+    "breakdown": [
+        "\u2022 Konfirmasi CHoCH Valid (+35)",
+        "\u2022 Struktur BOS Terbentuk (+25)",
+        "\u2022 Area Mitigasi / Order Block Tersentuh (+20)",
+        "\u2022 Lonjakan Volume Konfirmasi (+10)",
+        "\u2022 RRR Ideal (2.74 >= 2.0) (+10)"
+    ]
 }
