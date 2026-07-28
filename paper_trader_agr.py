@@ -1,6 +1,6 @@
 """
 ========================================================
-    KRIPTO BOT — Hybrid Agressive Edition (Paper Trading)
+    KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading)
     Strategi: (Tech Golden Cross / Pullback) OR (SMC Sweep)
     Target  : Khusus ETH-IDR (Fair Head-to-Head Arena)
     Market  : MURNI SPOT 100%
@@ -28,7 +28,7 @@ INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_hybrid.json"
 TARGET_SYMBOL       = "ETH/USDT"
 TARGET_PAIR_NAME    = "ETH-IDR"
-FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68
+FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (1.3%)
 
 # --- MANAJEMEN STATE PAPER TRADING ---
 def load_state():
@@ -70,46 +70,53 @@ class HybridPaperTrader:
     def __init__(self):
         self.state = load_state()
 
-    def process(self, signal_type, current_price, current_time, sl_price, tp_price, trigger_source):
-        # 1. Cek Posisi Aktif (Exit Logic: TP / SL / Emergency Exit)
+    def process(self, signal_type, current_price, high_price, low_price, current_time, sl_price, tp_price, trigger_source):
         pos = self.state.get("active_position")
+
+        # =========================================================
+        # 1. JIKA ADA POSISI AKTIF (OPEN) -> HANYA EVALUASI EXIT
+        # =========================================================
         if pos:
             entry_p = pos["entry_price_idr"]
             amount  = pos["amount"]
             sl      = pos["sl"]
             tp      = pos["tp"]
             strat_name = pos.get("strategy", "HYBRID")
-            
-            is_win          = current_price >= tp
-            is_loss         = current_price <= sl
-            is_emerg_exit   = signal_type == "EXIT_EMERGENCY"  # Death Cross / Bear Sweep
-            
+
+            # Deteksi presisi menggunakan High/Low candle (agar eksekusi jarum/wick terdeteksi)
+            is_win        = high_price >= tp
+            is_loss       = low_price <= sl
+            is_emerg_exit = signal_type == "EXIT_EMERGENCY"  # Death Cross / Bear Sweep
+
             if is_win or is_loss or is_emerg_exit:
                 if is_win:
                     exit_reason = "TAKE PROFIT (SWING 4H) 🎯"
+                    exit_price  = tp  # Kena target TP
                 elif is_loss:
                     exit_reason = "STOP LOSS (SWING 4H) 🛑"
+                    exit_price  = sl  # Kena batas SL
                 else:
                     exit_reason = f"EMERGENCY EXIT ({trigger_source}) ⚠️"
+                    exit_price  = current_price  # Keluar di harga saat ini
 
-                gross_final_val = current_price * amount
+                gross_final_val = exit_price * amount
                 fee_tax_amount  = gross_final_val * FEE_TAX_RATE
                 net_final_val   = gross_final_val - fee_tax_amount
-                
+
                 modal_val       = entry_p * amount
                 pnl_val         = net_final_val - modal_val
                 pnl_pct         = (pnl_val / modal_val) * 100
                 status          = "WIN" if pnl_val > 0 else "LOSS"
-                
+
                 # Update kas
                 self.state["cash_idr"] += net_final_val
-                
+
                 # Rekap history
                 trade_record = {
                     "pair": TARGET_PAIR_NAME,
                     "strategy": strat_name,
                     "entry_price": entry_p,
-                    "exit_price": current_price,
+                    "exit_price": exit_price,
                     "pnl_pct": round(pnl_pct, 2),
                     "pnl_idr": round(pnl_val, 2),
                     "status": status,
@@ -117,7 +124,7 @@ class HybridPaperTrader:
                     "exit_time": current_time
                 }
                 self.state["history"].append(trade_record)
-                
+
                 # Update stats
                 self.state["stats"]["total_trades"] += 1
                 if status == "WIN":
@@ -125,22 +132,22 @@ class HybridPaperTrader:
                 else:
                     self.state["stats"]["losses"] += 1
                 self.state["stats"]["total_pnl_idr"] += round(pnl_val, 2)
-                
-                # Bersihkan posisi aktif
+
+                # Bersihkan posisi aktif (RESET TO NONE)
                 self.state["active_position"] = None
                 save_state(self.state)
-                
+
                 # Susun pesan notifikasi
                 stats    = self.state["stats"]
                 win_rate = (stats["wins"] / stats["total_trades"]) * 100 if stats["total_trades"] > 0 else 0
-                
+
                 msg = (
                     f"🧪 *[PAPER TRADING - HYBRID EXIT]* {TARGET_PAIR_NAME}\n"
                     f"──────────────────────────────\n"
                     f"Alasan    : {exit_reason}\n"
                     f"Strategi  : {strat_name}\n"
                     f"Harga In  : Rp {entry_p:,.0f}\n"
-                    f"Harga Out : Rp {current_price:,.0f}\n"
+                    f"Harga Out : Rp {exit_price:,.0f}\n"
                     f"P/L       : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n\n"
                     f"📊 *REKAP TOTAL HYBRID*:\n"
                     f"• Total Trade : {stats['total_trades']}x\n"
@@ -150,14 +157,20 @@ class HybridPaperTrader:
                     f"• Sisa Kas    : Rp {self.state['cash_idr']:,.0f}"
                 )
                 return msg
+
+            # PROTEKSI UTAMA: Jika posisi masih OPEN dan belum disentuh TP/SL/Emergency, abaikan sinyal Beli baru
+            if signal_type == "BELI":
+                print(f"  🔒 [GUARD] Sinyal BELI ({trigger_source}) diabaikan! Posisi {TARGET_PAIR_NAME} masih OPEN.")
             return None
 
-        # 2. Jika Tidak Ada Posisi Aktif, Cari Sinyal Masuk (Beli via Tech ATAU SMC)
-        if not pos and signal_type == "BELI":
+        # =========================================================
+        # 2. JIKA TIDAK ADA POSISI AKTIF -> BARU BISA ENTRY BELI
+        # =========================================================
+        if signal_type == "BELI":
             available_cash = self.state["cash_idr"]
             if available_cash >= 100_000:  # Batas minimal alokasi
                 amount = available_cash / current_price
-                
+
                 self.state["active_position"] = {
                     "entry_price_idr": current_price,
                     "amount": amount,
@@ -167,9 +180,9 @@ class HybridPaperTrader:
                     "strategy": f"Hybrid ({trigger_source}) + Swing 4H",
                     "entry_time": current_time
                 }
-                self.state["cash_idr"] = 0.0  # Spot Murni
+                self.state["cash_idr"] = 0.0  # Spot Murni (All-in)
                 save_state(self.state)
-                
+
                 msg = (
                     f"🧪 *[PAPER TRADING - HYBRID ENTRY]* {TARGET_PAIR_NAME}\n"
                     f"──────────────────────────────\n"
@@ -180,6 +193,7 @@ class HybridPaperTrader:
                     f"Batas SL  : Rp {sl_price:,.0f} (Swing Low 4H)"
                 )
                 return msg
+
         return None
 
 # --- MAIN EXECUTOR ---
@@ -190,7 +204,7 @@ async def main():
         'options': {'defaultType': 'spot'},
         'timeout': 30000 
     })
-    
+
     try:
         exchange.load_markets()
     except Exception as e:
@@ -200,27 +214,29 @@ async def main():
     bot     = Bot(token=TOKEN)
     usd_idr = get_usd_idr()
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
-    
+
     pt_hybrid = HybridPaperTrader()
-    
+
     try:
         # Pull Data Multi-Timeframe: 1H & 4H
         bars_1h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='1h', limit=50)
         bars_4h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='4h', limit=30)
-        
+
         if len(bars_1h) < 40 or len(bars_4h) < 15:
             return
-            
+
         df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        
+
         curr_idx = -2
         prev_idx = -3
         c = df_1h.iloc[curr_idx]
         p = df_1h.iloc[prev_idx]
-        
+
         harga_idr = c['close'] * usd_idr
-        
+        high_idr  = c['high'] * usd_idr
+        low_idr   = c['low'] * usd_idr
+
         # --- ATR 1H (Buffer SL) ---
         tr0 = df_1h['high'] - df_1h['low']
         tr1 = (df_1h['high'] - df_1h['close'].shift(1)).abs()
@@ -230,7 +246,7 @@ async def main():
         atr_idr      = df_1h['atr'].iloc[curr_idx] * usd_idr
 
         # =========================================================
-        # 1. ANALISA SMC (Presisi 100% dari Bot SMC Standalone)
+        # 1. ANALISA SMC
         # =========================================================
         avg_vol_smc   = df_1h['volume'].iloc[-21:-1].median()
         candle_range  = c['high'] - c['low']
@@ -242,14 +258,14 @@ async def main():
         bear_sweep_smc = (upper_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] <= p['high'])
 
         # =========================================================
-        # 2. ANALISA TEKNIKAL (Presisi 100% dari Bot TECH Standalone)
+        # 2. ANALISA TEKNIKAL
         # =========================================================
         df_1h['ema9']         = df_1h['close'].ewm(span=9, adjust=False).mean()
         df_1h['ema21']        = df_1h['close'].ewm(span=21, adjust=False).mean()
         df_1h['avg_vol_tech'] = df_1h['volume'].rolling(window=3).mean().shift(1)
-        
+
         is_spike_vol_tech = c['volume'] > (df_1h['avg_vol_tech'].iloc[curr_idx] * VOL_MULTIPLIER_TECH)
-        
+
         # Golden Cross & Death Cross
         slope_ema9     = abs(df_1h['ema9'].iloc[curr_idx] - df_1h['ema9'].iloc[prev_idx]) / df_1h['ema9'].iloc[prev_idx] * 100
         is_sudut_tajam = slope_ema9 > 0.25 
@@ -257,10 +273,10 @@ async def main():
         ema9_prev      = df_1h['ema9'].iloc[prev_idx]
         ema21_now      = df_1h['ema21'].iloc[curr_idx]
         ema21_prev     = df_1h['ema21'].iloc[prev_idx]
-        
+
         golden_cross = (ema9_prev < ema21_prev) and (ema9_now > ema21_now) and is_spike_vol_tech and is_sudut_tajam
         death_cross  = (ema9_prev > ema21_prev) and (ema9_now < ema21_now)
-        
+
         # Pullback Bounce
         tren_bullish    = ema9_now > ema21_now
         sentuh_ema21    = c['low'] <= (ema21_now * 1.002)
@@ -277,21 +293,21 @@ async def main():
         swing = deteksi_swing_4h(df_4h, window=7)
         swing_high_idr = swing['swing_high'] * usd_idr
         swing_low_idr  = swing['swing_low'] * usd_idr
-        
+
         sl_bullish = swing_low_idr - (0.5 * atr_idr)
         tp_bullish = swing_high_idr
-        
+
         if tp_bullish <= harga_idr * 1.015:
             tp_bullish = harga_idr + (3.5 * atr_idr)
         if sl_bullish >= harga_idr * 0.985:
             sl_bullish = harga_idr - (1.8 * atr_idr)
 
         # =========================================================
-        # 4. LOGIKA HYBRID ENTRY & EXIT (Pintu OR Gate)
+        # 4. LOGIKA HYBRID ENTRY & EXIT
         # =========================================================
         signal_type = None
         trigger_source = ""
-        
+
         # Evaluasi Sinyal Entry
         if tech_entry_signal:
             signal_type = "BELI"
@@ -299,7 +315,7 @@ async def main():
         elif bull_sweep_smc:
             signal_type = "BELI"
             trigger_source = "SMC Bull Sweep"
-            
+
         # Evaluasi Sinyal Exit Darurat
         elif death_cross or bear_sweep_smc:
             signal_type = "EXIT_EMERGENCY"
@@ -311,12 +327,14 @@ async def main():
         pt_msg = pt_hybrid.process(
             signal_type=signal_type,
             current_price=harga_idr,
+            high_price=high_idr,
+            low_price=low_idr,
             current_time=now_wib.strftime('%Y-%m-%d %H:%M:%S'),
             sl_price=sl_bullish,
             tp_price=tp_bullish,
             trigger_source=trigger_source
         )
-        
+
         if pt_msg:
             await bot.send_message(chat_id=CHAT_ID, text=pt_msg, parse_mode='Markdown')
             print("   🧪 Notif Simulasi Hybrid ETH-IDR Terkirim")
