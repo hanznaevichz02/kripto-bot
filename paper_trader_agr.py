@@ -1,9 +1,8 @@
-"""
 ========================================================
     KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading)
     Strategi: (Tech Golden Cross / Pullback) OR (SMC Sweep)
     Target  : Khusus ETH-IDR (Fair Head-to-Head Arena)
-    Market  : MURNI SPOT 100%
+    Market  : MURNI SPOT 100% + SCORING SYSTEM
 ========================================================
 """
 
@@ -23,6 +22,9 @@ CHAT_ID             = os.getenv("TELEGRAM_CHAT_ID")
 # Pengali Volume Masing-masing Strategi
 VOL_MULTIPLIER_TECH = 2.0  # Acuan Bot TECH (Mean 3 Candle)
 VOL_MULTIPLIER_SMC  = 1.5  # Acuan Bot SMC (Median 20 Candle)
+
+# Parameter Skoring
+MIN_SCORE_ENTRY     = 70   # Batas minimal skor kelayakan untuk eksekusi BELI (0 - 100)
 
 INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_hybrid.json"
@@ -58,19 +60,65 @@ def get_usd_idr() -> float:
         return 18000.0
 
 def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
-    """
-    Mencari Swing Low & Swing High dari N candle 4H terakhir.
-    """
     swing_low = df_4h['low'].iloc[-window-1:-1].min()
     swing_high = df_4h['high'].iloc[-window-1:-1].max()
     return {'swing_high': swing_high, 'swing_low': swing_low}
+
+def hitung_skor_entry(ema9_now, ema21_now, is_spike_vol_tech, vol_spike_smc,
+                      golden_cross, pullback_bounce, bull_sweep_smc,
+                      harga_idr, sl_price, tp_price):
+    """
+    Sistem skoring kualitatif untuk menilai kelayakan Entry (Skor 0 - 100)
+    """
+    score = 0
+    breakdown = []
+
+    # 1. Tren Utama EMA (20 Poin)
+    if ema9_now > ema21_now:
+        score += 20
+        breakdown.append("• Tren EMA Bullish (+20)")
+
+    # 2. Lonjakan Volume / Liquidity (25 Poin)
+    if is_spike_vol_tech or vol_spike_smc:
+        score += 25
+        breakdown.append("• Volume Spike Konfirmasi (+25)")
+
+    # 3. Kekuatan Sinyal Pemicu (30 Poin)
+    if golden_cross:
+        score += 30
+        breakdown.append("• Golden Cross Momentum (+30)")
+    elif pullback_bounce:
+        score += 25
+        breakdown.append("• Pullback Bounce Konfirmasi (+25)")
+    
+    if bull_sweep_smc:
+        score += 30
+        breakdown.append("• SMC Liquidity Sweep (+30)")
+
+    # 4. Risk-to-Reward Ratio / RRR (25 Poin)
+    risk = harga_idr - sl_price
+    reward = tp_price - harga_idr
+    rrr = (reward / risk) if risk > 0 else 0
+
+    if rrr >= 2.0:
+        score += 25
+        breakdown.append(f"• RRR Sangat Baik ({rrr:.2f} >= 2.0) (+25)")
+    elif rrr >= 1.5:
+        score += 15
+        breakdown.append(f"• RRR Cukup Baik ({rrr:.2f} >= 1.5) (+15)")
+    else:
+        breakdown.append(f"• RRR Kurang Ideal ({rrr:.2f} < 1.5) (+0)")
+
+    final_score = min(score, 100)
+    return final_score, rrr, breakdown
 
 # --- KELAS PAPER TRADER HYBRID ---
 class HybridPaperTrader:
     def __init__(self):
         self.state = load_state()
 
-    def process(self, signal_type, current_price, high_price, low_price, current_time, sl_price, tp_price, trigger_source):
+    def process(self, signal_type, current_price, high_price, low_price, current_time, 
+                sl_price, tp_price, trigger_source, score_info=None):
         pos = self.state.get("active_position")
 
         # =========================================================
@@ -83,10 +131,9 @@ class HybridPaperTrader:
             tp      = pos["tp"]
             strat_name = pos.get("strategy", "HYBRID")
 
-            # Deteksi presisi menggunakan High/Low candle
             is_win        = high_price >= tp
             is_loss       = low_price <= sl
-            is_emerg_exit = signal_type == "EXIT_EMERGENCY"  # Death Cross / Bear Sweep
+            is_emerg_exit = signal_type == "EXIT_EMERGENCY"
 
             if is_win or is_loss or is_emerg_exit:
                 if is_win:
@@ -108,10 +155,8 @@ class HybridPaperTrader:
                 pnl_pct         = (pnl_val / modal_val) * 100
                 status          = "WIN" if pnl_val > 0 else "LOSS"
 
-                # Update kas
                 self.state["cash_idr"] += net_final_val
 
-                # Rekap history
                 trade_record = {
                     "pair": TARGET_PAIR_NAME,
                     "strategy": strat_name,
@@ -125,7 +170,6 @@ class HybridPaperTrader:
                 }
                 self.state["history"].append(trade_record)
 
-                # Update stats
                 self.state["stats"]["total_trades"] += 1
                 if status == "WIN":
                     self.state["stats"]["wins"] += 1
@@ -133,11 +177,9 @@ class HybridPaperTrader:
                     self.state["stats"]["losses"] += 1
                 self.state["stats"]["total_pnl_idr"] += round(pnl_val, 2)
 
-                # Bersihkan posisi aktif
                 self.state["active_position"] = None
                 save_state(self.state)
 
-                # Susun pesan notifikasi
                 stats    = self.state["stats"]
                 win_rate = (stats["wins"] / stats["total_trades"]) * 100 if stats["total_trades"] > 0 else 0
 
@@ -158,7 +200,6 @@ class HybridPaperTrader:
                 )
                 return msg
 
-            # PROTEKSI UTAMA: Jika posisi masih OPEN, abaikan sinyal Beli baru
             if signal_type == "BELI":
                 print(f"  🔒 [GUARD] Sinyal BELI ({trigger_source}) diabaikan! Posisi {TARGET_PAIR_NAME} masih OPEN.")
             return None
@@ -168,7 +209,7 @@ class HybridPaperTrader:
         # =========================================================
         if signal_type == "BELI":
             available_cash = self.state["cash_idr"]
-            if available_cash >= 100_000:  # Batas minimal alokasi
+            if available_cash >= 100_000:
                 amount = available_cash / current_price
 
                 self.state["active_position"] = {
@@ -180,13 +221,24 @@ class HybridPaperTrader:
                     "strategy": f"Hybrid ({trigger_source}) + Swing 4H",
                     "entry_time": current_time
                 }
-                self.state["cash_idr"] = 0.0  # Spot Murni (All-in)
+                self.state["cash_idr"] = 0.0
                 save_state(self.state)
+
+                # Format Tampilan Skor di Telegram
+                score_str = ""
+                if score_info:
+                    score, rrr, breakdown = score_info
+                    score_str = (
+                        f"📊 *SKOR ENTRY*: `{score}/100` (Min: {MIN_SCORE_ENTRY})\n"
+                        f"*Rincian Skoring*:\n" + "\n".join(breakdown) + "\n"
+                        f"──────────────────────────────\n"
+                    )
 
                 msg = (
                     f"🧪 *[PAPER TRADING - HYBRID ENTRY]* {TARGET_PAIR_NAME}\n"
                     f"──────────────────────────────\n"
                     f"Pemicu    : {trigger_source}\n"
+                    f"{score_str}"
                     f"Modal In  : Rp {available_cash:,.0f} (All-in Spot)\n"
                     f"Harga In  : Rp {current_price:,.0f}\n"
                     f"Target TP : Rp {tp_price:,.0f} (Swing High 4H)\n"
@@ -198,7 +250,7 @@ class HybridPaperTrader:
 
 # --- MAIN EXECUTOR ---
 async def main():
-    print("DEBUG: Menjalankan Paper Trader Hybrid Gercep (ETH-IDR Spot)...")
+    print("DEBUG: Menjalankan Paper Trader Hybrid Gercep + Scoring (ETH-IDR Spot)...")
     exchange = ccxt.kucoin({
         'enableRateLimit': True,
         'options': {'defaultType': 'spot'},
@@ -218,7 +270,6 @@ async def main():
     pt_hybrid = HybridPaperTrader()
 
     try:
-        # Pull Data Multi-Timeframe: 1H & 4H
         bars_1h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='1h', limit=50)
         bars_4h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='4h', limit=30)
 
@@ -248,7 +299,7 @@ async def main():
         # =========================================================
         # 1. ANALISA SMC
         # =========================================================
-        avg_vol_smc   = df_1h['volume'].iloc[-22:-2].median()  # Fix rentang 20 candle historis
+        avg_vol_smc   = df_1h['volume'].iloc[-22:-2].median()
         candle_range  = c['high'] - c['low']
         lower_wick    = min(c['close'], c['open']) - c['low']
         upper_wick    = c['high'] - max(c['close'], c['open'])
@@ -303,20 +354,37 @@ async def main():
             sl_bullish = harga_idr - (1.8 * atr_idr)
 
         # =========================================================
-        # 4. LOGIKA HYBRID ENTRY & EXIT
+        # 4. LOGIKA HYBRID ENTRY WITH SCORING & EXIT
         # =========================================================
         signal_type = None
         trigger_source = ""
+        score_info = None
 
-        # Evaluasi Sinyal Entry
-        if tech_entry_signal:
-            signal_type = "BELI"
-            trigger_source = "Golden Cross" if golden_cross else "Pullback Bounce"
-        elif bull_sweep_smc:
-            signal_type = "BELI"
-            trigger_source = "SMC Bull Sweep"
+        # A. Evaluasi Sinyal Entry + Skoring
+        if tech_entry_signal or bull_sweep_smc:
+            pemicu_list = []
+            if golden_cross: pemicu_list.append("Golden Cross")
+            if pullback_bounce: pemicu_list.append("Pullback Bounce")
+            if bull_sweep_smc: pemicu_list.append("SMC Bull Sweep")
+            
+            temp_trigger = " + ".join(pemicu_list)
 
-        # Evaluasi Sinyal Exit Darurat
+            # Hitung Skor
+            score, rrr, breakdown = hitung_skor_entry(
+                ema9_now, ema21_now, is_spike_vol_tech, vol_spike_smc,
+                golden_cross, pullback_bounce, bull_sweep_smc,
+                harga_idr, sl_bullish, tp_bullish
+            )
+            score_info = (score, rrr, breakdown)
+
+            if score >= MIN_SCORE_ENTRY:
+                signal_type = "BELI"
+                trigger_source = temp_trigger
+                print(f"  🎯 [SKOR PASS] Entry Disetujui! Skor: {score}/{MIN_SCORE_ENTRY} | Pemicu: {trigger_source}")
+            else:
+                print(f"  ⚠️ [SKOR FAIL] Sinyal Terdeteksi ({temp_trigger}) Tapi Skor ({score}) < {MIN_SCORE_ENTRY}. Aksinya Dibatalkan.")
+
+        # B. Evaluasi Sinyal Exit Darurat (Tanpa Syarat Skor)
         elif death_cross or bear_sweep_smc:
             signal_type = "EXIT_EMERGENCY"
             trigger_source = "Death Cross" if death_cross else "SMC Bear Sweep"
@@ -332,14 +400,15 @@ async def main():
             current_time=now_wib.strftime('%Y-%m-%d %H:%M:%S'),
             sl_price=sl_bullish,
             tp_price=tp_bullish,
-            trigger_source=trigger_source
+            trigger_source=trigger_source,
+            score_info=score_info
         )
 
         if pt_msg:
             await bot.send_message(chat_id=CHAT_ID, text=pt_msg, parse_mode='Markdown')
             print("   🧪 Notif Simulasi Hybrid ETH-IDR Terkirim")
         else:
-            print("   — Hybrid ETH-IDR: Tidak ada aksi (Posisi aktif / Sinyal nihil)")
+            print("   — Hybrid ETH-IDR: Tidak ada aksi (Posisi aktif / Sinyal nihil / Skor tidak memenuhi)")
 
     except Exception as e:
         print(f"Error pada paper trader hybrid: {e}")
