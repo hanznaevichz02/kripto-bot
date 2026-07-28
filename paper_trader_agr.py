@@ -2,9 +2,8 @@
 ========================================================
     KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading)
     Mode    : MULTI-ASSET SCANNER + RANKING SYSTEM (16 Koin)
-    Strategi: (Tech Golden Cross / Pullback) OR (SMC Sweep)
-    Market  : MURNI SPOT 100% + HYBRID SCORING SYSTEM
-    Versi   : 4.1.0 (Bugfix & High-Precision Exit)
+    Aturan  : STRICT 1 OPEN POSITION ONLY + STANDALONE
+    Versi   : 4.2.0 (Laporan Sinyal & Eksekusi Lengkap)
 ========================================================
 """
 
@@ -74,8 +73,8 @@ def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
     return {'swing_high': swing_high, 'swing_low': swing_low}
 
 def hitung_skor_hybrid(ema9_now, ema21_now, is_spike_vol_tech, vol_spike_smc,
-                       golden_cross, pullback_bounce, bull_sweep_smc,
-                       harga_idr, sl_price, tp_price):
+                        golden_cross, pullback_bounce, bull_sweep_smc,
+                        harga_idr, sl_price, tp_price):
     score = 0
     breakdown = []
 
@@ -132,13 +131,11 @@ def analisa_koin_hybrid(exchange, symbol, usd_idr):
         prev_idx = -3
         c = df_1h.iloc[curr_idx]
         p = df_1h.iloc[prev_idx]
-
-        # Ambil juga data candle paling baru (running - index -1) khusus pengecekan batas SL/TP aktual
         latest_c = df_1h.iloc[-1]
 
         harga_idr  = float(c['close'] * usd_idr)
-        high_idr   = float(max(c['high'], latest_c['high']) * usd_idr) # Pakai high tertinggi dari candle closed & running
-        low_idr    = float(min(c['low'], latest_c['low']) * usd_idr)   # Pakai low terendah dari candle closed & running
+        high_idr   = float(max(c['high'], latest_c['high']) * usd_idr)
+        low_idr    = float(min(c['low'], latest_c['low']) * usd_idr)
 
         # ATR 1H
         tr0 = df_1h['high'] - df_1h['low']
@@ -177,7 +174,7 @@ def analisa_koin_hybrid(exchange, symbol, usd_idr):
 
         tren_bullish    = ema9_now > ema21_now
         sentuh_ema21    = c['low'] <= (ema21_now * 1.002)
-        tutup_hijau      = c['close'] > c['open']
+        tutup_hijau     = c['close'] > c['open']
         tutup_atas_ema9 = c['close'] > ema9_now
         vol_oke_tech    = c['volume'] > df_1h['avg_vol_tech'].iloc[curr_idx]
         pullback_bounce = bool(tren_bullish and sentuh_ema21 and tutup_hijau and tutup_atas_ema9 and vol_oke_tech)
@@ -206,7 +203,7 @@ def analisa_koin_hybrid(exchange, symbol, usd_idr):
         if golden_cross: pemicu_list.append("Golden Cross")
         if pullback_bounce: pemicu_list.append("Pullback Bounce")
         if bull_sweep_smc: pemicu_list.append("SMC Bull Sweep")
-        trigger_str = " + ".join(pemicu_list)
+        trigger_str = " + ".join(pemicu_list) if pemicu_list else "Monitoring"
 
         return {
             "symbol": symbol,
@@ -294,8 +291,10 @@ async def main():
 
             stats = state["stats"]
             wr = (stats["wins"] / stats["total_trades"]) * 100 if stats["total_trades"] > 0 else 0
+            
+            # --- LAPORAN EKSEKUSI (EXIT) ---
             msg = (
-                f"🧪 *[PAPER TRADING - HYBRID EXIT]* {pair_name}\n"
+                f"🧪 *[LAPORAN EKSEKUSI - EXIT]* {pair_name}\n"
                 f"──────────────────────────────\n"
                 f"Alasan    : {exit_reason}\n"
                 f"Harga In  : Rp {entry_p:,.0f}\n"
@@ -308,25 +307,46 @@ async def main():
                 f"• Sisa Kas    : Rp {state['cash_idr']:,.0f}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
-            print(f"    🧪 Notif Exit Hybrid Terkirim untuk {pair_name}")
+            print(f"    🧪 Laporan Eksekusi Exit Terkirim untuk {pair_name}")
         else:
-            print(f"    — Hybrid: Posisi {pair_name} masih aktif.")
+            print(f"    — Hybrid: Posisi {pair_name} masih aktif (1 Open Position Lock).")
         return
 
     # =========================================================
-    # 2. SCANNING & RANKING (JIKA KAS KOSONG / AKUN IDLE)
+    # 2. SCANNING, RANKING & LAPORAN SINYAL (KAS KOSONG)
     # =========================================================
     candidates = []
+    scanned_summary = []
+    
     for symbol in ASSET_LIST:
         res = analisa_koin_hybrid(exchange, symbol, usd_idr)
-        if res and res["is_entry"] and res["score"] >= MIN_SCORE_ENTRY:
-            candidates.append(res)
+        if res:
+            scanned_summary.append(res)
+            if res["is_entry"] and res["score"] >= MIN_SCORE_ENTRY:
+                candidates.append(res)
+
+    # Urutkan seluruh hasil scan berdasarkan skor tertinggi untuk Laporan Sinyal
+    scanned_summary.sort(key=lambda x: x["score"], reverse=True)
+    top_3 = scanned_summary[:3]
+
+    # --- LAPORAN SINYAL (MARKET SCAN REPORT) ---
+    signal_lines = []
+    for idx, item in enumerate(top_3, 1):
+        signal_lines.append(f"{idx}. `{item['pair_name']}` — Skor: **{item['score']}/100** ({item['trigger_str']})")
+    
+    signal_report_text = (
+        f"📡 *[LAPORAN SINYAL - MARKET SCAN]*\n"
+        f"Waktu: {now_wib.strftime('%Y-%m-%d %H:%M:%S')} WIB\n"
+        f"──────────────────────────────\n"
+        + "\n".join(signal_lines)
+    )
+    await bot.send_message(chat_id=CHAT_ID, text=signal_report_text, parse_mode='Markdown')
 
     if not candidates:
-        print("    — Hybrid Scanner: Tidak ada koin yang lolos kriteria / skor minim.")
+        print("    — Hybrid Scanner: Tidak ada koin yang lolos kriteria minimum skor entry.")
         return
 
-    # Sort berdasarkan skor tertinggi (#1)
+    # Sort candidates untuk entry eksekusi juara #1
     candidates.sort(key=lambda x: x["score"], reverse=True)
     winner = candidates[0]
 
@@ -346,8 +366,10 @@ async def main():
         save_state(state)
 
         rincian_skor = "\n".join(winner["breakdown"])
+        
+        # --- LAPORAN EKSEKUSI (ENTRY) ---
         msg = (
-            f"🧪 *[PAPER TRADING - HYBRID ENTRY]* {winner['pair_name']}\n"
+            f"🧪 *[LAPORAN EKSEKUSI - ENTRY]* {winner['pair_name']}\n"
             f"──────────────────────────────\n"
             f"Pemicu    : {winner['trigger_str']}\n"
             f"📊 *SKOR HYBRID JUARA #1*: `{winner['score']}/100`\n"
@@ -359,7 +381,7 @@ async def main():
             f"Batas SL  : Rp {winner['sl_price']:,.0f}"
         )
         await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
-        print(f"    🧪 Notif Entry Hybrid Terkirim untuk Juara #1 ({winner['pair_name']})")
+        print(f"    🧪 Laporan Eksekusi Entry Terkirim untuk Juara #1 ({winner['pair_name']})")
 
 if __name__ == '__main__':
     asyncio.run(main())
