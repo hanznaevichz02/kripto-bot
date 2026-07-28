@@ -1,6 +1,6 @@
 """
 ========================================================
-    KRIPTO BOT — Manual On-Demand Analysis Script
+    KRIPTO BOT — Manual Analysis Script
     Fungsi  : Menganalisa koin pilihan via input GitHub Actions
     Output  : Kirim hasil prediksi jangka pendek & panjang ke Telegram
 ========================================================
@@ -27,7 +27,7 @@ PAIR_NAME = SYMBOL.replace('/', '-').replace('USDT', 'IDR')
 
 def get_usd_idr() -> float:
     try:
-        r = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
+        r = requests.get("[https://indodax.com/api/ticker/usdtidr](https://indodax.com/api/ticker/usdtidr)", timeout=5)
         return float(r.json()['ticker']['last'])
     except Exception:
         return 18000.0
@@ -79,26 +79,28 @@ def run_manual_analysis():
 
         # Status Tren Jangka Pendek
         if df_1h['ema9'].iloc[curr_idx] > df_1h['ema21'].iloc[curr_idx]:
-            tren_pendek = "Bullish (EMA 9 di atas EMA 21)"
-            pred_pendek = f"Potensi koreksi sehat / pullback ke area support terdekat di sekitar Rp {swing_low:,.0f}"
+            tren_pendek = "Bullish (EMA 9 > 21)"
+            pred_pendek = f"Potensi pullback ke support Rp {swing_low:,.0f}"
         else:
-            tren_pendek = "Bearish (EMA 9 di bawah EMA 21)"
-            pred_pendek = f"Tekanan jual masih ada, uji support bawah di kisaran Rp {harga_idr - (1.5 * atr_idr):,.0f}"
+            tren_pendek = "Bearish (EMA 9 < 21)"
+            pred_pendek = f"Uji support bawah kisaran Rp {harga_idr - (1.5 * atr_idr):,.0f}"
 
         # Prediksi Jangka Panjang (Swing)
-        pred_panjang = f"Target penguatan lanjutan (Swing 4H) menuju resistance Rp {swing_high:,.0f}"
+        pred_panjang = f"Target Swing 4H ke resistance Rp {swing_high:,.0f}"
 
-        # Kirim ke Telegram
+        # Kirim ke Telegram dengan format dibungkus block code ( ``` )
         bot = Bot(token=TOKEN)
         msg = (
-            f"🔍 *[LAPORAN ANALISA MANUAL]* — {PAIR_NAME}\n"
-            f"──────────────────────────────\n"
+            f"```text\n"
+            f"🔍 [LAPORAN ANALISA MANUAL] — {PAIR_NAME}\n"
+            f"----------------------------------------\n"
             f"• Harga Sekarang  : Rp {harga_idr:,.0f}\n"
             f"• Tren Pendek     : {tren_pendek}\n"
             f"• Jangka Pendek   : {pred_pendek}\n"
             f"• Jangka Panjang  : {pred_panjang}\n"
-            f"──────────────────────────────\n"
-            f"Status: Selesai (On-Demand Manual)"
+            f"----------------------------------------\n"
+            f"Status: Selesai (On-Demand Manual)\n"
+            f"```"
         )
         
         import asyncio
