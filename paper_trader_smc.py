@@ -3,6 +3,7 @@
    KRIPTO BOT — Smart Money Concept (SMC) Paper Trader
    Strategi: Liquidity Sweep (1H) + Swing Structure (4H)
    Target  : Khusus ETH-IDR (Pasar Spot / Buy Only)
+   Versi   : 3.8.0 (Fixed Capital Tracking & PnL Calculation)
 ========================================================
 """
 
@@ -16,11 +17,12 @@ import requests
 from telegram import Bot
 
 # --- KONFIGURASI ---
-TOKEN   = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TOKEN               = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID             = os.getenv("TELEGRAM_CHAT_ID")
 
 INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_smc.json"
+SIGNAL_FILE         = "signal_smc.json"  # File sinyal untuk dibaca bot AGR
 TARGET_SYMBOL       = "ETH/USDT"
 TARGET_PAIR_NAME    = "ETH-IDR"
 FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (1.3% per siklus roundtrip)
@@ -30,16 +32,21 @@ def load_state():
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, 'r') as f:
-                return json.load(f)
+                state = json.load(f)
+                # Pastikan key position_capital ada
+                if "position_capital" not in state:
+                    state["position_capital"] = 0.0
+                return state
         except Exception:
             pass
     return {
         "status": "IDLE",
         "balance": INITIAL_CAPITAL_IDR,
-        "buy_price": 0,
+        "position_capital": 0.0,  # FIX ISSUE 3: Tracking modal posisi aktif
+        "buy_price": 0.0,
         "buy_time": "",
-        "tp": 0,
-        "sl": 0,
+        "tp": 0.0,
+        "sl": 0.0,
         "total_trades": 0,
         "wins": 0,
         "losses": 0
@@ -48,6 +55,11 @@ def load_state():
 def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f, indent=4)
+
+def save_signal(signal_data):
+    """Menulis sinyal SMC ke JSON agar bisa dibaca oleh Bot AGR (Cara A)"""
+    with open(SIGNAL_FILE, 'w') as f:
+        json.dump(signal_data, f, indent=4)
 
 def get_usd_idr():
     try:
@@ -62,8 +74,8 @@ def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
     Mencari titik terendah (Swing Low) dan tertinggi (Swing High)
     dari N candle 4H terakhir untuk batas pertahanan Spot.
     """
-    swing_low = df_4h['low'].iloc[-window-1:-1].min()
-    swing_high = df_4h['high'].iloc[-window-1:-1].max()
+    swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
+    swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
     return {'swing_high': swing_high, 'swing_low': swing_low}
 
 class SMCIndependentTrader:
@@ -80,6 +92,9 @@ class SMCIndependentTrader:
             buy_p = self.state["buy_price"]
             tp    = self.state["tp"]
             sl    = self.state["sl"]
+
+            # FIX ISSUE 3 & 4: Gunakan modal yang terkunci saat entry
+            position_cap = self.state.get("position_capital", self.state["balance"])
 
             # Deteksi presisi menggunakan High/Low candle untuk eksekusi wick/jarum
             is_tp          = high_price >= tp
@@ -100,12 +115,18 @@ class SMCIndependentTrader:
                     reason       = "Sinyal BEAR_SWEEP"
                     exit_price   = current_price
 
-                gross_pct = ((exit_price - buy_p) / buy_p)
+                # FIX ISSUE 4: Perhitungan PnL berbasis modal entry (position_cap)
+                gross_pct = (exit_price - buy_p) / buy_p
                 net_pct   = gross_pct - FEE_TAX_RATE
+                pnl_rp    = position_cap * net_pct
                 
-                pnl_rp = self.state["balance"] * net_pct
-                self.state["balance"] += pnl_rp
+                # Update State & Saldo
+                self.state["balance"] = position_cap + pnl_rp
+                self.state["position_capital"] = 0.0
                 self.state["status"] = "IDLE"
+                self.state["buy_price"] = 0.0
+                self.state["tp"] = 0.0
+                self.state["sl"] = 0.0
                 self.state["total_trades"] += 1
 
                 if pnl_rp > 0:
@@ -131,7 +152,7 @@ class SMCIndependentTrader:
 
             # PROTEKSI: Jika masih IN_POSITION & ada sinyal Beli baru, abaikan
             if signal_type == "BULL_SWEEP":
-                print(f"  🔒 [GUARD] Sinyal BULL_SWEEP diabaikan! Posisi SMC {TARGET_PAIR_NAME} masih IN_POSITION.")
+                print(f"   🔒 [GUARD] Sinyal BULL_SWEEP diabaikan! Posisi SMC {TARGET_PAIR_NAME} masih IN_POSITION.")
 
             return None
 
@@ -140,7 +161,9 @@ class SMCIndependentTrader:
         # =========================================================
         elif self.state["status"] == "IDLE":
             if signal_type == "BULL_SWEEP":
+                # FIX ISSUE 3: Lock seluruh balance saat ini ke position_capital
                 self.state["status"] = "IN_POSITION"
+                self.state["position_capital"] = self.state["balance"]
                 self.state["buy_price"] = current_price
                 self.state["buy_time"] = str(current_time)
                 self.state["tp"] = tp_price
@@ -151,7 +174,7 @@ class SMCIndependentTrader:
                     f"🧪 *[PAPER TRADING - SMC SWING]* {TARGET_PAIR_NAME}\n"
                     f"──────────────────────────────\n"
                     f"Strategi  : Sweep 1H + Swing 4H (Spot)\n"
-                    f"Modal In  : Rp {self.state['balance']:,.0f}\n"
+                    f"Modal In  : Rp {self.state['position_capital']:,.0f}\n"
                     f"Harga In  : Rp {current_price:,.0f}\n"
                     f"Target TP : Rp {tp_price:,.0f} (Swing High 4H)\n"
                     f"Batas SL  : Rp {sl_price:,.0f} (Swing Low 4H)"
@@ -189,8 +212,8 @@ async def main():
         if len(bars_1h) < 40 or len(bars_4h) < 15:
             return
             
-        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
+        df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
         
         # Kalkulasi ATR 1H (Sebagai Buffer)
         tr0 = df_1h['high'] - df_1h['low']
@@ -242,6 +265,21 @@ async def main():
             sl_bullish = harga_idr - (1.8 * atr_idr)
         
         now_w_ib_str = now_wib.strftime('%Y-%m-%d %H:%M:%S')
+
+        # EXPORT SIGNAL UTK BOT AGR (Cara A)
+        signal_payload = {
+            "timestamp": now_w_ib_str,
+            "symbol": TARGET_SYMBOL,
+            "signal_type": signal_type,
+            "current_price": harga_idr,
+            "high_price": high_idr,
+            "low_price": low_idr,
+            "sl_price": sl_bullish,
+            "tp_price": tp_bullish
+        }
+        save_signal(signal_payload)
+
+        # PROSES SIMULASI TRADING
         pt_msg = trader.process_signal(
             signal_type=signal_type,
             current_price=harga_idr,
