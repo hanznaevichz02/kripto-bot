@@ -1,3 +1,4 @@
+"""
 ========================================================
     KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading)
     Strategi: (Tech Golden Cross / Pullback) OR (SMC Sweep)
