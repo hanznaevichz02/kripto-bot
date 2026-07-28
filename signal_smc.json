@@ -1,11 +1,11 @@
 {
-    "timestamp": "2026-07-29 04:05:44",
-    "symbol": "LINK/USDT",
-    "signal_type": "BULL_SWEEP",
-    "current_price": 151149.453,
-    "high_price": 151230.5205,
-    "low_price": 150720.696,
-    "sl_price": 147089.38671428573,
-    "tp_price": 156013.503,
-    "rrr": 1.2
+    "timestamp": "2026-07-29 05:05:47",
+    "symbol": "NEAR/USDT",
+    "signal_type": "AKUMULASI",
+    "current_price": 29772.1459,
+    "high_price": 29917.9378,
+    "low_price": 29676.751200000002,
+    "sl_price": 29026.408760714283,
+    "tp_price": 32151.6137,
+    "rrr": 3.19
 }
