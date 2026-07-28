@@ -1,8 +1,8 @@
 name: Trading Bot Hourly Scan
 
 on:
-  #schedule:
-    #- cron: '0 * * * *'  # Berjalan tiap jam (bisa diaktifkan kembali jika mau otomatis)
+  # schedule:
+  #   - cron: '0 * * * *'  # Aktifkan baris ini jika ingin otomatis jalan setiap jam
   workflow_dispatch:     # Agar bisa dijalankan manual dari tab Actions
 
 jobs:
@@ -48,6 +48,6 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
-          git add paper_trading.json paper_trading_tech.json || true
+          git add *.json || true
           git commit -m "Auto-update status paper trading [skip ci]" || true
           git push || true
