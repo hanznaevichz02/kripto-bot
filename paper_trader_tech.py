@@ -1,10 +1,10 @@
 """
 ========================================================
-    KRIPTO BOT — Technical Pure Edition (Paper Trading)
-    Strategi: Golden Cross & Pullback Bounce + Swing 4H
-    Target  : Khusus ETH-IDR (Fair Head-to-Head vs SMC)
-    Market  : MURNI SPOT 100%
-    Versi   : 4.1.0 (Bugfix & Optimized Signal Exporter)
+   KRIPTO BOT — Technical Pure Edition (Paper Trading)
+   Strategi: Golden Cross & Pullback Bounce + Swing 4H
+   Target  : Khusus ETH-IDR (Fair Head-to-Head vs SMC)
+   Market  : MURNI SPOT 100%
+   Versi   : 4.1.1 (High-Precision Exit & JSON Safety Fix)
 ========================================================
 """
 
@@ -165,11 +165,11 @@ class TechnicalPaperTrader:
             tp         = pos["tp"]
             strat_name = pos.get("strategy", "TECHNICAL")
             
+            is_loss       = low_price <= sl   # Prioritaskan cek Stop Loss
             is_win        = high_price >= tp
-            is_loss       = low_price <= sl
             is_death_exit = signal_type == "JUAL"  # Death Cross Emergency Exit
             
-            if is_win or is_loss or is_death_exit:
+            if is_loss or is_win or is_death_exit:
                 if is_loss:
                     exit_reason = "STOP LOSS (SWING 4H) 🛑"
                     exit_price  = sl
@@ -189,15 +189,15 @@ class TechnicalPaperTrader:
                 pnl_pct         = (pnl_val / modal_val) * 100
                 status          = "WIN" if pnl_val > 0 else "LOSS"
                 
-                self.state["cash_idr"] += net_final_val
+                self.state["cash_idr"] += float(net_final_val)
                 
                 trade_record = {
                     "pair": TARGET_PAIR_NAME,
                     "strategy": strat_name,
-                    "entry_price": entry_p,
-                    "exit_price": exit_price,
-                    "pnl_pct": round(pnl_pct, 2),
-                    "pnl_idr": round(pnl_val, 2),
+                    "entry_price": float(entry_p),
+                    "exit_price": float(exit_price),
+                    "pnl_pct": round(float(pnl_pct), 2),
+                    "pnl_idr": round(float(pnl_val), 2),
                     "status": status,
                     "entry_time": pos["entry_time"],
                     "exit_time": current_time
@@ -209,7 +209,7 @@ class TechnicalPaperTrader:
                     self.state["stats"]["wins"] += 1
                 else:
                     self.state["stats"]["losses"] += 1
-                self.state["stats"]["total_pnl_idr"] += round(pnl_val, 2)
+                self.state["stats"]["total_pnl_idr"] = round(float(self.state["stats"]["total_pnl_idr"] + pnl_val), 2)
                 
                 self.state["active_position"] = None
                 save_state(self.state)
@@ -249,10 +249,10 @@ class TechnicalPaperTrader:
                 strat_name = "Golden Cross" if signal_type == "BELI" else "Pullback Bounce"
                 
                 self.state["active_position"] = {
-                    "entry_price_idr": current_price,
-                    "amount": amount,
-                    "sl": sl_price,
-                    "tp": tp_price,
+                    "entry_price_idr": float(current_price),
+                    "amount": float(amount),
+                    "sl": float(sl_price),
+                    "tp": float(tp_price),
                     "type": signal_type,
                     "strategy": f"{strat_name} + Swing 4H",
                     "entry_time": current_time
@@ -326,54 +326,55 @@ async def main():
         
         df_1h['avg_vol'] = df_1h['volume'].rolling(window=20).mean().shift(1)
         
-        curr_idx = -2
-        prev_idx = -3
-        curr = df_1h.iloc[curr_idx]
-        avg_vol_now = df_1h['avg_vol'].iloc[curr_idx]
+        curr_idx  = -2
+        prev_idx  = -3
+        curr      = df_1h.iloc[curr_idx]
+        latest_c  = df_1h.iloc[-1]  # Candle running terbaru untuk jangkauan high/low presisi
+        avg_vol_now = float(df_1h['avg_vol'].iloc[curr_idx])
         
         is_spike_vol = curr['volume'] > (avg_vol_now * VOL_MULTIPLIER)
         
-        harga_idr = curr['close'] * usd_idr
-        high_idr  = curr['high'] * usd_idr
-        low_idr   = curr['low'] * usd_idr
-        atr_idr   = curr['atr'] * usd_idr
+        harga_idr = float(curr['close'] * usd_idr)
+        high_idr  = float(max(curr['high'], latest_c['high']) * usd_idr) # High tertinggi (closed + running)
+        low_idr   = float(min(curr['low'], latest_c['low']) * usd_idr)   # Low terendah (closed + running)
+        atr_idr   = float(curr['atr'] * usd_idr)
         
         # 2. Kalkulasi Swing High & Swing Low 4H
         swing = deteksi_swing_4h(df_4h, window=7)
         swing_high_idr = swing['swing_high'] * usd_idr
         swing_low_idr  = swing['swing_low'] * usd_idr
         
-        sl_bullish = swing_low_idr - (0.5 * atr_idr)
-        tp_bullish = swing_high_idr
+        sl_bullish = float(swing_low_idr - (0.5 * atr_idr))
+        tp_bullish = float(swing_high_idr)
         
         # Filter Pengaman
         if tp_bullish <= harga_idr * 1.015:
-            tp_bullish = harga_idr + (3.5 * atr_idr)
+            tp_bullish = float(harga_idr + (3.5 * atr_idr))
             
         if sl_bullish >= harga_idr * 0.985:
-            sl_bullish = harga_idr - (1.8 * atr_idr)
+            sl_bullish = float(harga_idr - (1.8 * atr_idr))
         
         # 3. Kondisi Golden Cross, Death Cross & Pullback Bounce
-        slope_ema9     = abs(df_1h['ema9'].iloc[curr_idx] - df_1h['ema9'].iloc[prev_idx]) / df_1h['ema9'].iloc[prev_idx] * 100
+        slope_ema9     = float(abs(df_1h['ema9'].iloc[curr_idx] - df_1h['ema9'].iloc[prev_idx]) / df_1h['ema9'].iloc[prev_idx] * 100)
         is_sudut_tajam = slope_ema9 > 0.25 
         
-        ema9_now   = df_1h['ema9'].iloc[curr_idx]
-        ema9_prev  = df_1h['ema9'].iloc[prev_idx]
-        ema21_now  = df_1h['ema21'].iloc[curr_idx]
-        ema21_prev = df_1h['ema21'].iloc[prev_idx]
+        ema9_now   = float(df_1h['ema9'].iloc[curr_idx])
+        ema9_prev  = float(df_1h['ema9'].iloc[prev_idx])
+        ema21_now  = float(df_1h['ema21'].iloc[curr_idx])
+        ema21_prev = float(df_1h['ema21'].iloc[prev_idx])
         
-        golden = (ema9_prev < ema21_prev) and (ema9_now > ema21_now)
-        death  = (ema9_prev > ema21_prev) and (ema9_now < ema21_now)
+        golden = bool((ema9_prev < ema21_prev) and (ema9_now > ema21_now))
+        death  = bool((ema9_prev > ema21_prev) and (ema9_now < ema21_now))
         
         tren_bullish    = ema9_now > ema21_now
         sentuh_ema21    = df_1h['low'].iloc[curr_idx] <= (ema21_now * 1.002)
-        tutup_hijau      = df_1h['close'].iloc[curr_idx] > df_1h['open'].iloc[curr_idx]
+        tutup_hijau     = df_1h['close'].iloc[curr_idx] > df_1h['open'].iloc[curr_idx]
         tutup_atas_ema9 = df_1h['close'].iloc[curr_idx] > ema9_now
         vol_oke         = df_1h['volume'].iloc[curr_idx] > avg_vol_now
 
-        pullback_bounce = tren_bullish and sentuh_ema21 and tutup_hijau and tutup_atas_ema9 and vol_oke
+        pullback_bounce = bool(tren_bullish and sentuh_ema21 and tutup_hijau and tutup_atas_ema9 and vol_oke)
         
-        raw_beli          = golden and is_spike_vol and is_sudut_tajam
+        raw_beli         = bool(golden and is_spike_vol and is_sudut_tajam)
         raw_pullback_beli = pullback_bounce
         
         # EVALUASI SINYAL DENGAN SCORING SYSTEM
@@ -389,9 +390,9 @@ async def main():
 
             if score >= MIN_SCORE_ENTRY:
                 signal_type = target_signal
-                print(f"   🎯 [TEKNIKAL SKOR PASS] Entry Disetujui ({signal_type})! Skor: {score}/{MIN_SCORE_ENTRY}")
+                print(f"    🎯 [TEKNIKAL SKOR PASS] Entry Disetujui ({signal_type})! Skor: {score}/{MIN_SCORE_ENTRY}")
             else:
-                print(f"   ⚠️ [TEKNIKAL SKOR FAIL] Sinyal Beli Terdeteksi Tapi Skor ({score}) < {MIN_SCORE_ENTRY}. Dibatalkan.")
+                print(f"    ⚠️ [TEKNIKAL SKOR FAIL] Sinyal Beli Terdeteksi Tapi Skor ({score}) < {MIN_SCORE_ENTRY}. Dibatalkan.")
 
         elif death:
             signal_type = "JUAL"  # Sinyal exit darurat
@@ -404,7 +405,7 @@ async def main():
             "symbol": TARGET_SYMBOL,
             "signal_type": signal_type,
             "score": score_info[0] if score_info else 0,
-            "rrr": score_info[1] if score_info else 0,
+            "rrr": score_info[1] if score_info else 0.0,
             "current_price": harga_idr,
             "high_price": high_idr,
             "low_price": low_idr,
