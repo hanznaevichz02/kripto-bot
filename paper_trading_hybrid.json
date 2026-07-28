@@ -1,0 +1,19 @@
+{
+    "cash_idr": 0.0,
+    "active_position": {
+        "symbol": "ADA/USDT",
+        "pair_name": "ADA-IDR",
+        "entry_price_idr": 2833.6126999999997,
+        "amount": 352.90637990153,
+        "sl": 2752.381782142857,
+        "tp": 3015.7864,
+        "entry_time": "2026-07-28 15:55:12"
+    },
+    "history": [],
+    "stats": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "total_pnl_idr": 0.0
+    }
+}
