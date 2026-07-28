@@ -2,8 +2,8 @@
 ========================================================
     KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading)
     Mode    : MULTI-ASSET SCANNER + RANKING SYSTEM (16 Koin)
-    Aturan  : STRICT 1 OPEN POSITION ONLY + STANDALONE
-    Versi   : 4.2.0 (Laporan Sinyal & Eksekusi Lengkap)
+    Aturan  : STRICT 1 OPEN POSITION ONLY + JSON SIGNAL OUTPUT
+    Versi   : 4.3.0 (Integrasi signal_agr.json & Clean Telegram)
 ========================================================
 """
 
@@ -26,6 +26,7 @@ MIN_SCORE_ENTRY     = 70     # Batas minimal skor kelayakan (0 - 100)
 
 INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_hybrid.json"
+SIGNAL_FILE         = "signal_agr.json"
 FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (1.3%)
 
 ASSET_LIST = [
@@ -35,7 +36,7 @@ ASSET_LIST = [
     'ADA/USDT'
 ]
 
-# --- MANAJEMEN STATE PAPER TRADING ---
+# --- MANAJEMEN STATE & SIGNAL ---
 def load_state():
     if os.path.exists(STATE_FILE):
         try:
@@ -58,6 +59,10 @@ def load_state():
 def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f, indent=4)
+
+def save_signal(signal_data):
+    with open(SIGNAL_FILE, 'w') as f:
+        json.dump(signal_data, f, indent=4)
 
 # --- FUNGSI HELPER ---
 def get_usd_idr() -> float:
@@ -292,9 +297,9 @@ async def main():
             stats = state["stats"]
             wr = (stats["wins"] / stats["total_trades"]) * 100 if stats["total_trades"] > 0 else 0
             
-            # --- LAPORAN EKSEKUSI (EXIT) ---
+            # Notif Telegram KHUSUS EXIT
             msg = (
-                f"🧪 *[LAPORAN EKSEKUSI - EXIT]* {pair_name}\n"
+                f"🧪 *[PAPER TRADING - HYBRID EXIT]* {pair_name}\n"
                 f"──────────────────────────────\n"
                 f"Alasan    : {exit_reason}\n"
                 f"Harga In  : Rp {entry_p:,.0f}\n"
@@ -307,13 +312,13 @@ async def main():
                 f"• Sisa Kas    : Rp {state['cash_idr']:,.0f}"
             )
             await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
-            print(f"    🧪 Laporan Eksekusi Exit Terkirim untuk {pair_name}")
+            print(f"    🧪 Notif Exit Terkirim untuk {pair_name}")
         else:
             print(f"    — Hybrid: Posisi {pair_name} masih aktif (1 Open Position Lock).")
         return
 
     # =========================================================
-    # 2. SCANNING, RANKING & LAPORAN SINYAL (KAS KOSONG)
+    # 2. SCANNING, RANKING & PENYIMPANAN SIGNAL JSON (KAS KOSONG)
     # =========================================================
     candidates = []
     scanned_summary = []
@@ -325,28 +330,23 @@ async def main():
             if res["is_entry"] and res["score"] >= MIN_SCORE_ENTRY:
                 candidates.append(res)
 
-    # Urutkan seluruh hasil scan berdasarkan skor tertinggi untuk Laporan Sinyal
+    # Urutkan seluruh hasil scan berdasarkan skor tertinggi
     scanned_summary.sort(key=lambda x: x["score"], reverse=True)
-    top_3 = scanned_summary[:3]
 
-    # --- LAPORAN SINYAL (MARKET SCAN REPORT) ---
-    signal_lines = []
-    for idx, item in enumerate(top_3, 1):
-        signal_lines.append(f"{idx}. `{item['pair_name']}` — Skor: **{item['score']}/100** ({item['trigger_str']})")
-    
-    signal_report_text = (
-        f"📡 *[LAPORAN SINYAL - MARKET SCAN]*\n"
-        f"Waktu: {now_wib.strftime('%Y-%m-%d %H:%M:%S')} WIB\n"
-        f"──────────────────────────────\n"
-        + "\n".join(signal_lines)
-    )
-    await bot.send_message(chat_id=CHAT_ID, text=signal_report_text, parse_mode='Markdown')
+    # Simpan ringkasan sinyal ke signal_agr.json (Tanpa spam ke Telegram)
+    signal_payload = {
+        "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
+        "top_signals": scanned_summary[:3],
+        "all_scanned": scanned_summary
+    }
+    save_signal(signal_payload)
+    print("    — Hybrid Scanner: Berhasil memperbarui file signal_agr.json.")
 
     if not candidates:
         print("    — Hybrid Scanner: Tidak ada koin yang lolos kriteria minimum skor entry.")
         return
 
-    # Sort candidates untuk entry eksekusi juara #1
+    # Sort candidates untuk eksekusi entry juara #1
     candidates.sort(key=lambda x: x["score"], reverse=True)
     winner = candidates[0]
 
@@ -367,9 +367,9 @@ async def main():
 
         rincian_skor = "\n".join(winner["breakdown"])
         
-        # --- LAPORAN EKSEKUSI (ENTRY) ---
+        # Notif Telegram KHUSUS ENTRY
         msg = (
-            f"🧪 *[LAPORAN EKSEKUSI - ENTRY]* {winner['pair_name']}\n"
+            f"🧪 *[PAPER TRADING - HYBRID ENTRY]* {winner['pair_name']}\n"
             f"──────────────────────────────\n"
             f"Pemicu    : {winner['trigger_str']}\n"
             f"📊 *SKOR HYBRID JUARA #1*: `{winner['score']}/100`\n"
@@ -381,7 +381,7 @@ async def main():
             f"Batas SL  : Rp {winner['sl_price']:,.0f}"
         )
         await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
-        print(f"    🧪 Laporan Eksekusi Entry Terkirim untuk Juara #1 ({winner['pair_name']})")
+        print(f"    🧪 Notif Entry Terkirim untuk Juara #1 ({winner['pair_name']})")
 
 if __name__ == '__main__':
     asyncio.run(main())
