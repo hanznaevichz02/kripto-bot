@@ -1,10 +1,10 @@
 """
 ========================================================
-   KRIPTO BOT — Technical Pure Edition (Paper Trading)
-   Strategi: Golden Cross & Pullback Bounce + Swing 4H
-   Target  : Khusus ETH-IDR (Fair Head-to-Head vs SMC)
-   Market  : MURNI SPOT 100%
-   Versi   : 4.0.0 (With Technical Scoring System & Quality Filter)
+    KRIPTO BOT — Technical Pure Edition (Paper Trading)
+    Strategi: Golden Cross & Pullback Bounce + Swing 4H
+    Target  : Khusus ETH-IDR (Fair Head-to-Head vs SMC)
+    Market  : MURNI SPOT 100%
+    Versi   : 4.1.0 (Bugfix & Optimized Signal Exporter)
 ========================================================
 """
 
@@ -45,14 +45,10 @@ def load_state():
         try:
             with open(STATE_FILE, 'r') as f:
                 state = json.load(f)
-                if "cash_idr" not in state:
-                    state["cash_idr"] = INITIAL_CAPITAL_IDR
-                if "active_position" not in state:
-                    state["active_position"] = None
-                if "history" not in state:
-                    state["history"] = []
-                if "stats" not in state:
-                    state["stats"] = {"total_trades": 0, "wins": 0, "losses": 0, "total_pnl_idr": 0.0}
+                if "cash_idr" not in state: state["cash_idr"] = INITIAL_CAPITAL_IDR
+                if "active_position" not in state: state["active_position"] = None
+                if "history" not in state: state["history"] = []
+                if "stats" not in state: state["stats"] = {"total_trades": 0, "wins": 0, "losses": 0, "total_pnl_idr": 0.0}
                 return state
         except Exception:
             pass
@@ -64,8 +60,11 @@ def save_state(state):
 
 def save_signal(signal_data):
     """Menulis sinyal Teknikal ke JSON untuk integrasi monitoring / Bot AGR"""
-    with open(SIGNAL_FILE, 'w') as f:
-        json.dump(signal_data, f, indent=4)
+    try:
+        with open(SIGNAL_FILE, 'w') as f:
+            json.dump(signal_data, f, indent=4)
+    except Exception as e:
+        print(f"Gagal menyimpan signal_tech.json: {e}")
 
 # --- FUNGSI HELPER ---
 def get_usd_idr():
@@ -76,18 +75,14 @@ def get_usd_idr():
         return 18000.0
 
 def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
-    """
-    Mencari Swing Low & Swing High dari N candle 4H terakhir.
-    """
+    """Mencari Swing Low & Swing High dari N candle 4H terakhir."""
     swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
     swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
     return {'swing_high': swing_high, 'swing_low': swing_low}
 
 # --- FUNGSI SKORING KUALITAS TEKNIKAL ---
 def hitung_skor_tech(c, avg_vol, slope_ema9, harga_idr, sl_price, tp_price, is_golden):
-    """
-    Sistem skoring kualitatif khusus Strategi Teknikal (Skor 0 - 100)
-    """
+    """Sistem skoring kualitatif khusus Strategi Teknikal (Skor 0 - 100)"""
     score = 0
     breakdown = []
 
@@ -372,7 +367,7 @@ async def main():
         
         tren_bullish    = ema9_now > ema21_now
         sentuh_ema21    = df_1h['low'].iloc[curr_idx] <= (ema21_now * 1.002)
-        tutup_hijau     = df_1h['close'].iloc[curr_idx] > df_1h['open'].iloc[curr_idx]
+        tutup_hijau      = df_1h['close'].iloc[curr_idx] > df_1h['open'].iloc[curr_idx]
         tutup_atas_ema9 = df_1h['close'].iloc[curr_idx] > ema9_now
         vol_oke         = df_1h['volume'].iloc[curr_idx] > avg_vol_now
 
@@ -394,9 +389,9 @@ async def main():
 
             if score >= MIN_SCORE_ENTRY:
                 signal_type = target_signal
-                print(f"  🎯 [TEKNIKAL SKOR PASS] Entry Disetujui ({signal_type})! Skor: {score}/{MIN_SCORE_ENTRY}")
+                print(f"   🎯 [TEKNIKAL SKOR PASS] Entry Disetujui ({signal_type})! Skor: {score}/{MIN_SCORE_ENTRY}")
             else:
-                print(f"  ⚠️ [TEKNIKAL SKOR FAIL] Sinyal Beli Terdeteksi Tapi Skor ({score}) < {MIN_SCORE_ENTRY}. Dibatalkan.")
+                print(f"   ⚠️ [TEKNIKAL SKOR FAIL] Sinyal Beli Terdeteksi Tapi Skor ({score}) < {MIN_SCORE_ENTRY}. Dibatalkan.")
 
         elif death:
             signal_type = "JUAL"  # Sinyal exit darurat
