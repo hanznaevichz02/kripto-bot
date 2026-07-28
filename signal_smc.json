@@ -1,11 +1,11 @@
 {
-    "timestamp": "2026-07-28 16:35:09",
-    "symbol": "NONE",
-    "signal_type": null,
-    "current_price": 0.0,
-    "high_price": 0.0,
-    "low_price": 0.0,
-    "sl_price": 0.0,
-    "tp_price": 0.0,
-    "rrr": 0.0
+    "timestamp": "2026-07-28 18:05:39",
+    "symbol": "TAO/USDT",
+    "signal_type": "BULL_SWEEP",
+    "current_price": 3391768.0799999996,
+    "high_price": 3394655.9200000004,
+    "low_price": 3378411.8200000003,
+    "sl_price": 3297481.393214286,
+    "tp_price": 3624419.69,
+    "rrr": 2.47
 }
