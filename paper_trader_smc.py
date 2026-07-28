@@ -3,7 +3,7 @@
    KRIPTO BOT — Smart Money Concept (SMC) Paper Trader
    Strategi: Liquidity Sweep (1H) + Swing Structure (4H)
    Target  : Khusus ETH-IDR (Pasar Spot / Buy Only)
-   Versi   : 4.0.0 (With SMC Scoring System & Quality Filter)
+   Versi   : 4.1.0 (Bugfix Exit Logic & Signal Exporter)
 ========================================================
 """
 
@@ -61,10 +61,13 @@ def save_state(state):
 
 def save_signal(signal_data):
     """Menulis sinyal SMC ke JSON agar bisa dibaca oleh Bot AGR"""
-    with open(SIGNAL_FILE, 'w') as f:
-        json.dump(signal_data, f, indent=4)
+    try:
+        with open(SIGNAL_FILE, 'w') as f:
+            json.dump(signal_data, f, indent=4)
+    except Exception as e:
+        print(f"Gagal menyimpan signal SMC: {e}")
 
-def get_usd_idr():
+def get_usd_idr() -> float:
     try:
         response = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
         return float(response.json()['ticker']['last'])
@@ -79,9 +82,6 @@ def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
 
 # --- FUNGSI SKORING KUALITAS SMC ---
 def hitung_skor_smc(c, avg_vol, ema9_now, ema21_now, harga_idr, sl_price, tp_price):
-    """
-    Sistem skoring kualitatif khusus Liquidity Sweep SMC (Skor 0 - 100)
-    """
     score = 0
     breakdown = []
 
@@ -136,12 +136,12 @@ class SMCIndependentTrader:
     def __init__(self):
         self.state = load_state()
 
-    def process_signal(self, signal_type, current_price, high_price, low_price, 
+    def process_signal(self, raw_bear_sweep, is_bull_entry_valid, current_price, high_price, low_price, 
                        current_time, sl_price, tp_price, score_info=None):
         msg = None
         
         # =========================================================
-        # 1. CEK EXIT POSISI SPOT (TP / SL / Sinyal Bearish Emergency)
+        # 1. EVALUASI EXIT POSISI SPOT (IN_POSITION)
         # =========================================================
         if self.state["status"] == "IN_POSITION":
             buy_p = self.state["buy_price"]
@@ -152,7 +152,7 @@ class SMCIndependentTrader:
 
             is_tp          = high_price >= tp
             is_sl          = low_price <= sl
-            is_bear_signal = signal_type == "BEAR_SWEEP"
+            is_bear_signal = raw_bear_sweep  # Emergency Exit dari Raw Bear Sweep
 
             if is_tp or is_sl or is_bear_signal:
                 if is_tp:
@@ -165,7 +165,7 @@ class SMCIndependentTrader:
                     exit_price   = sl
                 else:
                     status_title = "⚠️ EMERGENCY EXIT (SMC)"
-                    reason       = "Sinyal BEAR_SWEEP"
+                    reason       = "Sinyal BEAR_SWEEP Terdeteksi"
                     exit_price   = current_price
 
                 gross_pct = (exit_price - buy_p) / buy_p
@@ -201,16 +201,16 @@ class SMCIndependentTrader:
                 save_state(self.state)
                 return msg
 
-            if signal_type == "BULL_SWEEP":
+            if is_bull_entry_valid:
                 print(f"    🔒 [GUARD] Sinyal BULL_SWEEP diabaikan! Posisi SMC {TARGET_PAIR_NAME} masih IN_POSITION.")
 
             return None
 
         # =========================================================
-        # 2. CEK ENTRY POSISI SPOT (Hanya Beli saat Bull Sweep)
+        # 2. EVALUASI ENTRY POSISI SPOT (IDLE)
         # =========================================================
         elif self.state["status"] == "IDLE":
-            if signal_type == "BULL_SWEEP":
+            if is_bull_entry_valid:
                 self.state["status"]           = "IN_POSITION"
                 self.state["position_capital"] = self.state["balance"]
                 self.state["buy_price"]        = current_price
@@ -264,7 +264,7 @@ async def main():
     trader = SMCIndependentTrader()
     
     try:
-        # Pull Data Multi-Timeframe: 1H (Trigger & Indicators) & 4H (Structure)
+        # Pull Data Multi-Timeframe: 1H & 4H
         bars_1h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='1h', limit=50)
         bars_4h = exchange.fetch_ohlcv(TARGET_SYMBOL, timeframe='4h', limit=30)
         
@@ -321,10 +321,10 @@ async def main():
             sl_bullish = harga_idr - (1.8 * atr_idr)
         
         # EVALUASI SINYAL DENGAN SCORING SYSTEM
-        signal_type = None
-        score_info  = None
-        ema9_now    = df_1h['ema9'].iloc[curr_idx]
-        ema21_now   = df_1h['ema21'].iloc[curr_idx]
+        is_bull_entry_valid = False
+        score_info          = None
+        ema9_now            = df_1h['ema9'].iloc[curr_idx]
+        ema21_now           = df_1h['ema21'].iloc[curr_idx]
 
         if raw_bull_sweep:
             score, rrr, breakdown = hitung_skor_smc(
@@ -333,34 +333,35 @@ async def main():
             score_info = (score, rrr, breakdown)
 
             if score >= MIN_SCORE_ENTRY:
-                signal_type = "BULL_SWEEP"
-                print(f"  🎯 [SMC SKOR PASS] Entry Disetujui! Skor: {score}/{MIN_SCORE_ENTRY}")
+                is_bull_entry_valid = True
+                print(f"   🎯 [SMC SKOR PASS] Entry Disetujui! Skor: {score}/{MIN_SCORE_ENTRY}")
             else:
-                print(f"  ⚠️ [SMC SKOR FAIL] Sinyal Bull Sweep Terdeteksi Tapi Skor ({score}) < {MIN_SCORE_ENTRY}. Aksinya Dibatalkan.")
-
-        elif raw_bear_sweep:
-            signal_type = "BEAR_SWEEP"
+                print(f"   ⚠️ [SMC SKOR FAIL] Sinyal Bull Sweep Terdeteksi Tapi Skor ({score}) < {MIN_SCORE_ENTRY}. Dibatalkan.")
 
         now_w_ib_str = now_wib.strftime('%Y-%m-%d %H:%M:%S')
 
-        # EXPORT SIGNAL UTK BOT AGR (Disertai Data Skor & RRR)
-        signal_payload = {
-            "timestamp": now_w_ib_str,
-            "symbol": TARGET_SYMBOL,
-            "signal_type": signal_type,
-            "score": score_info[0] if score_info else 0,
-            "rrr": score_info[1] if score_info else 0,
-            "current_price": harga_idr,
-            "high_price": high_idr,
-            "low_price": low_idr,
-            "sl_price": sl_bullish,
-            "tp_price": tp_bullish
-        }
-        save_signal(signal_payload)
+        # EXPORT SIGNAL UNTUK BOT AGR (HANYA JIKA ADA SINYAL AKTIF)
+        signal_type_export = "BULL_SWEEP" if is_bull_entry_valid else ("BEAR_SWEEP" if raw_bear_sweep else None)
+        
+        if signal_type_export:
+            signal_payload = {
+                "timestamp": now_w_ib_str,
+                "symbol": TARGET_SYMBOL,
+                "signal_type": signal_type_export,
+                "score": score_info[0] if score_info else 0,
+                "rrr": score_info[1] if score_info else 0,
+                "current_price": harga_idr,
+                "high_price": high_idr,
+                "low_price": low_idr,
+                "sl_price": sl_bullish,
+                "tp_price": tp_bullish
+            }
+            save_signal(signal_payload)
 
         # PROSES SIMULASI TRADING
         pt_msg = trader.process_signal(
-            signal_type=signal_type,
+            raw_bear_sweep=raw_bear_sweep,
+            is_bull_entry_valid=is_bull_entry_valid,
             current_price=harga_idr,
             high_price=high_idr,
             low_price=low_idr,
