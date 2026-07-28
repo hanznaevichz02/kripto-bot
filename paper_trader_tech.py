@@ -304,7 +304,7 @@ async def main():
             tren_b = ema9_n > ema21_n
             sentuh_e21 = df_1h['low'].iloc[-2] <= (ema21_n * 1.002)
             tutup_h = df_1h['close'].iloc[-2] > df_1h['open'].iloc[-2]
-            tutup_ atas_e9 = df_1h['close'].iloc[-2] > ema9_n
+            tutup_atas_e9 = df_1h['close'].iloc[-2] > ema9_n
             vol_oke = df_1h['volume'].iloc[-2] > avg_vol_now
             
             pullback_bounce = bool(tren_b and sentuh_e21 and tutup_h and tutup_atas_e9 and vol_oke)
