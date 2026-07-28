@@ -68,6 +68,24 @@ def save_signal(signal_data):
     except Exception as e:
         print(f"Gagal menyimpan signal_tech.json: {e}")
 
+def save_signal_kosong(timestamp_str):
+    default_signal = {
+        "timestamp": timestamp_str,
+        "symbol": "NONE",
+        "signal_type": None,
+        "current_price": 0.0,
+        "high_price": 0.0,
+        "low_price": 0.0,
+        "sl_price": 0.0,
+        "tp_price": 0.0,
+        "rrr": 0.0
+    }
+    try:
+        with open(SIGNAL_FILE, 'w') as f:
+            json.dump(default_signal, f, indent=4)
+    except Exception as e:
+        print(f"Gagal menyimpan signal_tech.json: {e}")
+
 def get_usd_idr():
     try:
         response = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
@@ -367,19 +385,31 @@ async def main():
                     await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
                     notif_sent = True
                 break
-        # Jika sedang ada posisi aktif, simpan status sinyal atau kosongkan ke file signal
-        save_signal(None)
+        # Jika sedang ada posisi aktif, simpan format kosong ber-struktur ke file signal
+        save_signal_kosong(now_str)
     elif candidates:
         top = candidates[0]
-        save_signal({"timestamp": now_str, **top})
+        signal_payload = {
+            "timestamp": now_str,
+            "symbol": top["symbol"],
+            "signal_type": top["signal"],
+            "current_price": top["price"],
+            "high_price": top["high"],
+            "low_price": top["low"],
+            "sl_price": top["sl"],
+            "tp_price": top["tp"],
+            "rrr": top["score_info"][1] if top["score_info"] else 0.0
+        }
+        save_signal(signal_payload)
+        
         msg = pt_tech.process(top["pair"], top["signal"], top["price"], top["high"], top["low"], now_str, top["sl"], top["tp"], top.get("score_info"))
         if msg:
             await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
             print(f"    🧪 Notif Entry Teknikal Terkirim untuk Juara #1 ({top['pair']})")
             notif_sent = True
     else:
-        # Jika tidak ada posisi aktif dan tidak ada kandidat, simpan null agar file selalu ada
-        save_signal(None)
+        # Jika tidak ada posisi aktif dan tidak ada kandidat, simpan format kosong ber-struktur
+        save_signal_kosong(now_str)
 
     if not notif_sent:
         print("    — Teknikal Scanner: Tidak ada posisi aktif atau sinyal valid yang memenuhi skor.")
