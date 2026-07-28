@@ -27,7 +27,7 @@ PAIR_NAME = SYMBOL.replace('/', '-').replace('USDT', 'IDR')
 
 def get_usd_idr() -> float:
     try:
-        r = requests.get("[https://indodax.com/api/ticker/usdtidr](https://indodax.com/api/ticker/usdtidr)", timeout=5)
+        r = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
         return float(r.json()['ticker']['last'])
     except Exception:
         return 18000.0
@@ -70,36 +70,31 @@ def run_manual_analysis():
         df_1h['atr'] = df_1h['tr'].rolling(window=14).mean()
         
         atr_idr = float(df_1h['atr'].iloc[curr_idx] * usd_idr)
-        ema9_now = df_1h['ema9'].iloc[curr_idx] * usd_idr
-        ema21_now = df_1h['ema21'].iloc[curr_idx] * usd_idr
 
-        # Swing 4H untuk Jangka Panjang
+        # Swing 4H untuk Jangka Panjang & Pendek
         swing_low = float(df_4h['low'].iloc[-8:-1].min()) * usd_idr
         swing_high = float(df_4h['high'].iloc[-8:-1].max()) * usd_idr
 
-        # Status Tren Jangka Pendek
-        if df_1h['ema9'].iloc[curr_idx] > df_1h['ema21'].iloc[curr_idx]:
-            tren_pendek = "Bullish (EMA 9 > 21)"
-            pred_pendek = f"Potensi pullback ke support Rp {swing_low:,.0f}"
-        else:
-            tren_pendek = "Bearish (EMA 9 < 21)"
-            pred_pendek = f"Uji support bawah kisaran Rp {harga_idr - (1.5 * atr_idr):,.0f}"
-
-        # Prediksi Jangka Panjang (Swing)
-        pred_panjang = f"Target Swing 4H ke resistance Rp {swing_high:,.0f}"
+        # Penentuan Tren & Target Singkat
+        is_bullish = df_1h['ema9'].iloc[curr_idx] > df_1h['ema21'].iloc[curr_idx]
+        
+        tren_pendek = "Potensi Naik" if is_bullish else "Potensi Turun"
+        
+        # Format Singkat 1 Baris
+        pred_pendek = f"Turun ke Rp {swing_low:,.0f}" if not is_bullish else f"Naik ke Rp {swing_high:,.0f}"
+        pred_panjang = f"Naik ke Rp {swing_high:,.0f}" if is_bullish else f"Turun ke Rp {swing_low:,.0f}"
 
         # Kirim ke Telegram dengan format dibungkus block code ( ``` )
         bot = Bot(token=TOKEN)
         msg = (
             f"```text\n"
-            f"🔍 [LAPORAN ANALISA MANUAL] — {PAIR_NAME}\n"
-            f"----------------------------------------\n"
+            f"🔍 [ANALISA] — {PAIR_NAME}\n"
+            f"----------------------------------\n"
             f"• Harga Sekarang  : Rp {harga_idr:,.0f}\n"
+            f"\n"
             f"• Tren Pendek     : {tren_pendek}\n"
             f"• Jangka Pendek   : {pred_pendek}\n"
             f"• Jangka Panjang  : {pred_panjang}\n"
-            f"----------------------------------------\n"
-            f"Status: Selesai (On-Demand Manual)\n"
             f"```"
         )
         
