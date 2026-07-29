@@ -1,6 +1,14 @@
 {
-    "cash_idr": 1018101.2219856732,
-    "active_position": null,
+    "cash_idr": 0.0,
+    "active_position": {
+        "symbol": "ADA/USDT",
+        "pair_name": "ADA-IDR",
+        "entry_price_idr": 2935.9631,
+        "amount": 346.76907962013325,
+        "sl": 2742.259482142857,
+        "tp": 3004.3669,
+        "entry_time": "2026-07-29 12:06:00"
+    },
     "history": [
         {
             "pair": "TAO-IDR",
