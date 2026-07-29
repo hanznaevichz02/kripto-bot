@@ -1,7 +1,7 @@
 """
 ========================================================
     KRIPTO BOT — Analisa Simpel, Dinamis & Presisi Layout
-    Fungsi  : Alignment Titik Dua (:) & Hemat Ruang Horizontal
+    Fungsi  : Pemisahan Analisis Berdasarkan Timeframe (4H vs 1D)
 ========================================================
 """
 
@@ -131,51 +131,34 @@ def run_analysis():
         else:
             status_rsi = f"Wajar/Normal ({rsi_4h:.0f})"
 
-        # --- LOGIKA TERTINGGI (SKENARIO NAIK / TURUN / CAMPURAN) ---
-        if is_bullish_1d and is_bullish_4h:
-            smc_kondisi = "Tren besar & kecil kompak NAIK. Bandar lagi dorong harga ke atas."
-            smc_rekomendasi = "Sabar, tunggu harga agak diskon dikit turun dulu baru ikutan Beli."
-            smc_hold = f"Pertimbangkan TP di Atap 2 (Rp {r2_1d_idr:,.0f})."
-
-            tech_kondisi = "Kondisi pasar lagi bagus dan stabil (Uptrend kuat)."
-            tech_rekomendasi = "Aman buat Beli. Kalau tembus Atap 1, potensi lanjut naik tinggi."
-            tech_hold = f"Pertimbangkan TP bertahap di Atap 1 (Rp {r1_4h_idr:,.0f})."
-
-        elif not is_bullish_1d and not is_bullish_4h:
-            smc_kondisi = "Pasar lagi lesu/rusak. Bandar masih cenderung jualan."
-            smc_rekomendasi = "Jangan coba-coba melawan arus. Tahan diri dulu dari posisi Beli."
-            smc_hold = f"Pertimbangkan SL jika harga terus turun melewati Rp {s2_1d_idr:,.0f}."
-
-            tech_kondisi = "Tren TURUN dominan. Tekanan jual masih lumayan tinggi."
-            tech_rekomendasi = "Wait & See (Nonton dulu). Hanya spekulasi beli kalau harga sudah murah banget."
-            tech_hold = f"Pertimbangkan SL jika harga menembus Lantai 2 (Rp {s2_4h_idr:,.0f})."
-
-        elif is_bullish_1d and not is_bullish_4h:
-            smc_kondisi = "Tren besar masih NAIK, tapi jangka pendek lagi TURUN buat cari tenaga baru."
-            smc_rekomendasi = "Jangan buru-buru! Tunggu ada tanda-tanda harga berhenti turun dan mulai mantul."
-            smc_hold = f"Pertimbangkan TP di Atap 1 (Rp {r1_1d_idr:,.0f}) setelah harga kembali mantul naik."
-
-            tech_kondisi = "Harga lagi koreksi sehat (turun sementara uji ketahanan)."
-            tech_rekomendasi = "Momen pas buat cicil Beli bertahap dekat area Lantai 1 / Lantai 2."
-            tech_hold = f"Pertimbangkan SL jika harga justru makin merosot di bawah Rp {s2_4h_idr:,.0f}."
-
+        # --- LOGIKA INDEPENDEN SMC 4H (JANGKA PENDEK / SCALPING) ---
+        if is_bullish_4h:
+            smc_4h_k = "Tren 4H lagi NAIK. Bandar jangka pendek dorong harga."
+            smc_4h_r = "Aman buat Beli saat koreksi tipis di area Lantai 1 4H."
+            smc_4h_h = f"Pertimbangkan TP di Atap 1 4H (Rp {r1_4h_idr:,.0f})."
         else:
-            smc_kondisi = "Harga naik cuma buat 'napas' sebentar sebelum potensi lanjut turun lagi."
-            smc_rekomendasi = "Waspada Jebakan Naik (Bull Trap)! Jangan tergiur beli di pucuk."
-            smc_hold = f"Pertimbangkan SL ketat jika harga berbalik turun melewati Rp {s1_1d_idr:,.0f}."
+            smc_4h_k = "Tren 4H lagi TURUN. Tekanan jual jangka pendek masih terasa."
+            smc_4h_r = "Wait & See dulu. Tunggu pantulan di dekat Lantai 1 4H."
+            smc_4h_h = f"Pertimbangkan SL jika harga jebol Lantai 2 4H (Rp {s2_4h_idr:,.0f})."
 
-            tech_kondisi = "Pantulan harga sementara di tengah tren turun besar."
-            tech_rekomendasi = "Kalau punya barang, manfaatkan kenaikan mendekati Atap 1 buat Take Profit / Jualan."
-            tech_hold = f"Pertimbangkan TP di Atap 1 (Rp {r1_4h_idr:,.0f}) sebelum tren balik turun."
+        # --- LOGIKA INDEPENDEN SMC 1D (JANGKA PANJANG / SWING) ---
+        if is_bullish_1d:
+            smc_1d_k = "Tren besar 1D NAIK kuat. Bandar makro menjaga harga."
+            smc_1d_r = "Bagus untuk posisi Swing/Hold. Struktur makro sangat sehat."
+            smc_1d_h = f"Pertimbangkan TP utama di Atap 2 1D (Rp {r2_1d_idr:,.0f})."
+        else:
+            smc_1d_k = "Tren besar 1D lagi TURUN. Bandar makro masih cenderung distribusi/jual."
+            smc_1d_r = "Hindari hold posisi terlalu lama. Utamakan quick trade saja."
+            smc_1d_h = f"Pertimbangkan SL jika harga jebol Lantai 2 1D (Rp {s2_1d_idr:,.0f})."
 
         # --- FORMATTING TEKS PARAGRAF ---
-        smc_k_formatted = rapihkan_teks("• Kondisi  : ", smc_kondisi)
-        smc_r_formatted = rapihkan_teks("• Rekom    : ", smc_rekomendasi)
-        smc_h_formatted = rapihkan_teks("• Hold     : ", smc_hold)
+        smc_4h_k_fmt = rapihkan_teks("• Kondisi  : ", smc_4h_k)
+        smc_4h_r_fmt = rapihkan_teks("• Rekom    : ", smc_4h_r)
+        smc_4h_h_fmt = rapihkan_teks("• Hold     : ", smc_4h_h)
 
-        tech_k_formatted = rapihkan_teks("• Kondisi  : ", tech_kondisi)
-        tech_r_formatted = rapihkan_teks("• Rekom    : ", tech_rekomendasi)
-        tech_h_formatted = rapihkan_teks("• Hold     : ", tech_hold)
+        smc_1d_k_fmt = rapihkan_teks("• Kondisi  : ", smc_1d_k)
+        smc_1d_r_fmt = rapihkan_teks("• Rekom    : ", smc_1d_r)
+        smc_1d_h_fmt = rapihkan_teks("• Hold     : ", smc_1d_h)
 
         # --- FORMAT PESAN TELEGRAM ---
         bot = Bot(token=TOKEN)
@@ -183,23 +166,22 @@ def run_analysis():
             f"```text\n"
             f"🔍 [ANALISA PASAR] — {PAIR_NAME}\n"
             f"----------------------------------\n"
-            f"• Harga       : Rp {harga_sekarang:,.0f}\n"
-            f"\n"
+            f"• Harga       : Rp {harga_sekarang:,.0f}\n\n"
             f"• Kondisi RSI : {status_rsi}\n"
             f"• Tren (4H)   : {tren_4h_teks}\n"
             f"{level_4h_teks}\n"
             f"• Tren (1D)   : {tren_1d_teks}\n"
             f"{level_1d_teks}\n"
             f"----------------------------------\n"
-            f"📋 PERSPEKTIF BANDAR (SMC)\n"
-            f"{smc_k_formatted}\n"
-            f"{smc_r_formatted}\n"
-            f"{smc_h_formatted}\n"
+            f"📋 PERSPEKTIF SMC 4H\n"
+            f"{smc_4h_k_fmt}\n"
+            f"{smc_4h_r_fmt}\n"
+            f"{smc_4h_h_fmt}\n"
             f"----------------------------------\n"
-            f"📋 PERSPEKTIF TEKNIKAL (TECH)\n"
-            f"{tech_k_formatted}\n"
-            f"{tech_r_formatted}\n"
-            f"{tech_h_formatted}\n"
+            f"📋 PERSPEKTIF SMC 1D\n"
+            f"{smc_1d_k_fmt}\n"
+            f"{smc_1d_r_fmt}\n"
+            f"{smc_1d_h_fmt}\n"
             f"```"
         )
         
