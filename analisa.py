@@ -1,7 +1,7 @@
 """
 ========================================================
-    KRIPTO BOT — Analisa Simpel, Dinamis & Rapi
-    Fungsi  : Menganalisa 4H & 1D + Logika Hold (TP / SL)
+    KRIPTO BOT — Analisa Simpel, Dinamis & Presisi Layout
+    Fungsi  : Alignment Titik Dua (:) & Hemat Ruang Horizontal
 ========================================================
 """
 
@@ -61,21 +61,35 @@ def run_analysis():
         # Harga saat ini (Update realtime dari candle terakhir)
         harga_sekarang = float(df_4h['close'].iloc[-1] * usd_idr)
 
-        # --- RUMUS PIVOT POINTS KLASIK (Dari Candle 1D Kemarin) ---
+        # --- 1. PIVOT POINTS KHUSUS 4H ---
+        curr_4h = -2
+        high_4h = df_4h['high'].iloc[curr_4h]
+        low_4h = df_4h['low'].iloc[curr_4h]
+        close_4h = df_4h['close'].iloc[curr_4h]
+
+        pivot_4h = (high_4h + low_4h + close_4h) / 3
+        r1_4h = (2 * pivot_4h) - low_4h
+        r2_4h = pivot_4h + (high_4h - low_4h)
+        s1_4h = (2 * pivot_4h) - high_4h
+        s2_4h = pivot_4h - (high_4h - low_4h)
+
+        s1_4h_idr, s2_4h_idr = float(s1_4h * usd_idr), float(s2_4h * usd_idr)
+        r1_4h_idr, r2_4h_idr = float(r1_4h * usd_idr), float(r2_4h * usd_idr)
+
+        # --- 2. PIVOT POINTS KHUSUS 1D ---
         curr_1d = -2 
         high_1d = df_1d['high'].iloc[curr_1d]
         low_1d = df_1d['low'].iloc[curr_1d]
         close_1d = df_1d['close'].iloc[curr_1d]
 
-        pivot = (high_1d + low_1d + close_1d) / 3
-        r1 = (2 * pivot) - low_1d
-        r2 = pivot + (high_1d - low_1d)
-        s1 = (2 * pivot) - high_1d
-        s2 = pivot - (high_1d - low_1d)
+        pivot_1d = (high_1d + low_1d + close_1d) / 3
+        r1_1d = (2 * pivot_1d) - low_1d
+        r2_1d = pivot_1d + (high_1d - low_1d)
+        s1_1d = (2 * pivot_1d) - high_1d
+        s2_1d = pivot_1d - (high_1d - low_1d)
 
-        # Konversi level ke IDR
-        s1_idr, s2_idr = float(s1 * usd_idr), float(s2 * usd_idr)
-        r1_idr, r2_idr = float(r1 * usd_idr), float(r2 * usd_idr)
+        s1_1d_idr, s2_1d_idr = float(s1_1d * usd_idr), float(s2_1d * usd_idr)
+        r1_1d_idr, r2_1d_idr = float(r1_1d * usd_idr), float(r2_1d * usd_idr)
 
         # --- INDIKATOR TREN (EMA 9 & 21) ---
         df_4h['ema9'] = df_4h['close'].ewm(span=9, adjust=False).mean()
@@ -89,16 +103,16 @@ def run_analysis():
         tren_4h_teks = "NAIK 🟢" if is_bullish_4h else "TURUN 🔴"
         tren_1d_teks = "NAIK 🟢" if is_bullish_1d else "TURUN 🔴"
 
-        # --- LOGIKA DINAMIS TAMPILAN LANTAI / ATAP ---
+        # --- LOGIKA TAMPILAN PRESISI (TITIK DUA SEJAJAR DIPASANG DI KARAKTER KE-15) ---
         if is_bullish_4h:
-            level_4h_teks = f"              Atap 1  : Rp {r1_idr:,.0f}\n              Atap 2  : Rp {r2_idr:,.0f}"
+            level_4h_teks = f"  Atap 1      : Rp {r1_4h_idr:,.0f}\n  Atap 2      : Rp {r2_4h_idr:,.0f}"
         else:
-            level_4h_teks = f"              Lantai 1: Rp {s1_idr:,.0f}\n              Lantai 2: Rp {s2_idr:,.0f}"
+            level_4h_teks = f"  Lantai 1    : Rp {s1_4h_idr:,.0f}\n  Lantai 2    : Rp {s2_4h_idr:,.0f}"
 
         if is_bullish_1d:
-            level_1d_teks = f"              Atap 1  : Rp {r1_idr:,.0f}\n              Atap 2  : Rp {r2_idr:,.0f}"
+            level_1d_teks = f"  Atap 1      : Rp {r1_1d_idr:,.0f}\n  Atap 2      : Rp {r2_1d_idr:,.0f}"
         else:
-            level_1d_teks = f"              Lantai 1: Rp {s1_idr:,.0f}\n              Lantai 2: Rp {s2_idr:,.0f}"
+            level_1d_teks = f"  Lantai 1    : Rp {s1_1d_idr:,.0f}\n  Lantai 2    : Rp {s2_1d_idr:,.0f}"
 
         # --- RSI 4H ---
         delta = df_4h['close'].diff()
@@ -119,50 +133,42 @@ def run_analysis():
 
         # --- LOGIKA TERTINGGI (SKENARIO NAIK / TURUN / CAMPURAN) ---
         if is_bullish_1d and is_bullish_4h:
-            # 1. PASAR NAIK KUAT (1D & 4H KOMPAK NAIK) -> Fokus TP
             smc_kondisi = "Tren besar & kecil kompak NAIK. Bandar lagi dorong harga ke atas."
             smc_rekomendasi = "Sabar, tunggu harga agak diskon dikit turun dulu baru ikutan Beli."
-            smc_hold = f"Pertimbangkan TP di Atap 2 (Rp {r2_idr:,.0f})."
+            smc_hold = f"Pertimbangkan TP di Atap 2 (Rp {r2_1d_idr:,.0f})."
 
             tech_kondisi = "Kondisi pasar lagi bagus dan stabil (Uptrend kuat)."
             tech_rekomendasi = "Aman buat Beli. Kalau tembus Atap 1, potensi lanjut naik tinggi."
-            tech_hold = f"Pertimbangkan TP bertahap di Atap 1 (Rp {r1_idr:,.0f})."
+            tech_hold = f"Pertimbangkan TP bertahap di Atap 1 (Rp {r1_4h_idr:,.0f})."
 
         elif not is_bullish_1d and not is_bullish_4h:
-            # 2. PASAR TURUN KUAT (1D & 4H KOMPAK TURUN) -> Fokus SL
             smc_kondisi = "Pasar lagi lesu/rusak. Bandar masih cenderung jualan."
             smc_rekomendasi = "Jangan coba-coba melawan arus. Tahan diri dulu dari posisi Beli."
-            smc_hold = f"Pertimbangkan SL jika harga terus turun melewati Rp {s2_idr:,.0f}."
+            smc_hold = f"Pertimbangkan SL jika harga terus turun melewati Rp {s2_1d_idr:,.0f}."
 
             tech_kondisi = "Tren TURUN dominan. Tekanan jual masih lumayan tinggi."
             tech_rekomendasi = "Wait & See (Nonton dulu). Hanya spekulasi beli kalau harga sudah murah banget."
-            tech_hold = f"Pertimbangkan SL jika harga menembus Lantai 2 (Rp {s2_idr:,.0f})."
+            tech_hold = f"Pertimbangkan SL jika harga menembus Lantai 2 (Rp {s2_4h_idr:,.0f})."
 
         elif is_bullish_1d and not is_bullish_4h:
-            # 3. CAMPURAN (1D NAIK, 4H TURUN) -> Koreksi Sehat
-            # SMC melihat tren besar NAIK -> arahkan ke TP saat mantul
-            # TECH melihat 4H TURUN -> arahkan ke SL jika koreksi kebablasan
             smc_kondisi = "Tren besar masih NAIK, tapi jangka pendek lagi TURUN buat cari tenaga baru."
             smc_rekomendasi = "Jangan buru-buru! Tunggu ada tanda-tanda harga berhenti turun dan mulai mantul."
-            smc_hold = f"Pertimbangkan TP di Atap 1 (Rp {r1_idr:,.0f}) setelah harga kembali mantul naik."
+            smc_hold = f"Pertimbangkan TP di Atap 1 (Rp {r1_1d_idr:,.0f}) setelah harga kembali mantul naik."
 
             tech_kondisi = "Harga lagi koreksi sehat (turun sementara uji ketahanan)."
             tech_rekomendasi = "Momen pas buat cicil Beli bertahap dekat area Lantai 1 / Lantai 2."
-            tech_hold = f"Pertimbangkan SL jika harga justru makin merosot di bawah Rp {s2_idr:,.0f}."
+            tech_hold = f"Pertimbangkan SL jika harga justru makin merosot di bawah Rp {s2_4h_idr:,.0f}."
 
-        else: # not is_bullish_1d and is_bullish_4h
-            # 4. CAMPURAN (1D TURUN, 4H NAIK) -> Dead Cat Bounce / Bull Trap
-            # SMC menilai tren besar TURUN -> utamakan SL ketat
-            # TECH memanfaatkan 4H NAIK -> arahkan ke TP terdekat
+        else:
             smc_kondisi = "Harga naik cuma buat 'napas' sebentar sebelum potensi lanjut turun lagi."
             smc_rekomendasi = "Waspada Jebakan Naik (Bull Trap)! Jangan tergiur beli di pucuk."
-            smc_hold = f"Pertimbangkan SL ketat jika harga berbalik turun melewati Rp {s1_idr:,.0f}."
+            smc_hold = f"Pertimbangkan SL ketat jika harga berbalik turun melewati Rp {s1_1d_idr:,.0f}."
 
             tech_kondisi = "Pantulan harga sementara di tengah tren turun besar."
             tech_rekomendasi = "Kalau punya barang, manfaatkan kenaikan mendekati Atap 1 buat Take Profit / Jualan."
-            tech_hold = f"Pertimbangkan TP di Atap 1 (Rp {r1_idr:,.0f}) sebelum tren balik turun."
+            tech_hold = f"Pertimbangkan TP di Atap 1 (Rp {r1_4h_idr:,.0f}) sebelum tren balik turun."
 
-        # --- FORMATTING TEKS PARAGRAF PRESISI INDENTASI ---
+        # --- FORMATTING TEKS PARAGRAF ---
         smc_k_formatted = rapihkan_teks("• Kondisi  : ", smc_kondisi)
         smc_r_formatted = rapihkan_teks("• Rekom    : ", smc_rekomendasi)
         smc_h_formatted = rapihkan_teks("• Hold     : ", smc_hold)
@@ -178,6 +184,7 @@ def run_analysis():
             f"🔍 [ANALISA PASAR] — {PAIR_NAME}\n"
             f"----------------------------------\n"
             f"• Harga       : Rp {harga_sekarang:,.0f}\n"
+            f"\n"
             f"• Kondisi RSI : {status_rsi}\n"
             f"• Tren (4H)   : {tren_4h_teks}\n"
             f"{level_4h_teks}\n"
