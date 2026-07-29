@@ -3,7 +3,7 @@
    KRIPTO BOT — SMC Swing Edition (Multi-Asset Paper Trading)
    Strategi: Smart Money Concepts (CHoCH, BOS, Order Block, Swing 4H)
    Market  : MURNI SPOT 100% (Multi-Asset Watchlist)
-   Versi   : 4.2.0 (Multi-Asset Scanner & JSON Safety Fix)
+   Versi   : 4.2.1 (Layout Presisi Sejajar Bot AGR)
 ========================================================
 """
 
@@ -57,8 +57,11 @@ def load_state():
     return default_state
 
 def save_state(state):
-    with open(STATE_FILE, 'w') as f:
-        json.dump(state, f, indent=4)
+    try:
+        with open(STATE_FILE, 'w') as f:
+            json.dump(state, f, indent=4)
+    except Exception as e:
+        print(f"Gagal menyimpan state {STATE_FILE}: {e}")
 
 def save_signal(signal_data):
     try:
@@ -126,7 +129,7 @@ class SmcPaperTrader:
         if pos:
             active_pair = pos.get("pair", "ETH-IDR")
             if active_pair != target_pair_name:
-                return None  # Skip jika sedang memproses koin lain selain yang sedang di-hold
+                return None  # Skip jika koin beda dari yang di-hold
 
             entry_p = pos["entry_price_idr"]
             amount  = pos["amount"]
@@ -150,6 +153,7 @@ class SmcPaperTrader:
                 pnl_pct   = (pnl_val / modal_val) * 100
                 status    = "WIN" if pnl_val > 0 else "LOSS"
                 
+                # Update State
                 self.state["cash_idr"] += float(net_val)
                 self.state["history"].append({
                     "pair": active_pair,
@@ -164,22 +168,39 @@ class SmcPaperTrader:
                 })
                 
                 self.state["stats"]["total_trades"] += 1
-                if status == "WIN": self.state["stats"]["wins"] += 1
-                else: self.state["stats"]["losses"] += 1
+                if status == "WIN": 
+                    self.state["stats"]["wins"] += 1
+                else: 
+                    self.state["stats"]["losses"] += 1
+                
                 self.state["stats"]["total_pnl_idr"] = round(float(self.state["stats"]["total_pnl_idr"] + pnl_val), 2)
                 
+                # Reset posisi aktif & simpan state
                 self.state["active_position"] = None
                 save_state(self.state)
                 
+                # Ambil statistik untuk notifikasi
                 stats = self.state["stats"]
-                win_rate = (stats["wins"] / stats["total_trades"]) * 100 if stats["total_trades"] > 0 else 0
+                total_trades = stats["total_trades"]
+                wins = stats["wins"]
+                losses = stats["losses"]
+                total_pnl = stats["total_pnl_idr"]
+                win_rate = (wins / total_trades) * 100 if total_trades > 0 else 0.0
+                sisa_kas = self.state["cash_idr"]
                 
+                # TAMPILAN NOTIFIKASI SEJAJAR DENGAN AGR
                 return (
                     f"🧪 *[PAPER TRADING - SMC EXIT]* {active_pair}\n"
                     f"──────────────────────────────\n"
                     f"Alasan    : {exit_reason}\n"
-                    f"P/L       : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n"
-                    f"Win Rate  : {win_rate:.1f}% | Total P/L: Rp {stats['total_pnl_idr']:+,.0f}"
+                    f"Harga In  : Rp {entry_p:,.0f}\n"
+                    f"Harga Out : Rp {exit_price:,.0f}\n"
+                    f"P/L       : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n\n"
+                    f"📊 *REKAP TOTAL SMC:*\n"
+                    f"• Total Trade : {total_trades}x\n"
+                    f"• Win / Loss  : {wins} Win / {losses} Loss (WR: {win_rate:.1f}%)\n"
+                    f"• Total P/L   : Rp {total_pnl:+,.0f}\n"
+                    f"• Sisa Kas    : Rp {sisa_kas:,.0f}"
                 )
             return None
 
@@ -300,7 +321,6 @@ async def main():
     if active_pos:
         # Cek exit untuk koin yang sedang di-hold
         active_pair = active_pos["pair"]
-        # Ambil data terbaru untuk koin aktif
         for item in WATCHLIST:
             if item["pair"] == active_pair:
                 bars_1h = exchange.fetch_ohlcv(item["symbol"], timeframe='1h', limit=10)
@@ -322,11 +342,11 @@ async def main():
         msg = pt_smc.process(top["pair"], top["signal"], top["price"], top["high"], top["low"], now_str, top["sl"], top["tp"], (top["score"], top["breakdown"]))
         if msg:
             await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
-            print(f"    🧪 Notif Entry SMC Terkirim untuk Juara #1 ({top['pair']})")
+            print(f"   🧪 Notif Entry SMC Terkirim untuk Juara #1 ({top['pair']})")
             notif_sent = True
 
     if not notif_sent:
-        print("    — SMC Scanner: Tidak ada posisi aktif atau sinyal valid yang memenuhi skor.")
+        print("   — SMC Scanner: Tidak ada posisi aktif atau sinyal valid yang memenuhi skor.")
 
 if __name__ == '__main__':
     asyncio.run(main())
