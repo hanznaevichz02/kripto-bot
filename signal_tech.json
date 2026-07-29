@@ -1,11 +1,11 @@
 {
-    "timestamp": "2026-07-29 09:05:59",
-    "symbol": "BTC/USDT",
-    "signal_type": "JUAL",
-    "current_price": 1147715330.6000001,
-    "high_price": 1153008725.2,
-    "low_price": 1146940599.6000001,
-    "sl_price": 1127071452.0,
-    "tp_price": 1172027470.3999999,
+    "timestamp": "2026-07-29 10:05:53",
+    "symbol": "NONE",
+    "signal_type": null,
+    "current_price": 0.0,
+    "high_price": 0.0,
+    "low_price": 0.0,
+    "sl_price": 0.0,
+    "tp_price": 0.0,
     "rrr": 0.0
 }
