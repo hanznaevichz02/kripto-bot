@@ -1,357 +1,384 @@
 {
-    "timestamp": "2026-07-30 01:05:57",
+    "timestamp": "2026-07-30 03:06:06",
     "top_signals": [
-        {
-            "symbol": "SOL/USDT",
-            "pair_name": "SOL-IDR",
-            "harga_idr": 1330784.14,
-            "high_idr": 1337798.68,
-            "low_idr": 1329345.26,
-            "sl_price": 1296771.329285714,
-            "tp_price": 1362394.535,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 25,
-            "rrr": 0.9293673276676085,
-            "breakdown": [
-                "\u2022 Volume Spike Konfirmasi (+25)",
-                "\u2022 Funding Rate Normal (+0.0050%) (+0)"
-            ]
-        },
-        {
-            "symbol": "DOT/USDT",
-            "pair_name": "DOT-IDR",
-            "harga_idr": 13869.0046,
-            "high_idr": 13912.171,
-            "low_idr": 13775.4774,
-            "sl_price": 13419.48307142857,
-            "tp_price": 14233.221099999999,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 25,
-            "rrr": 0.8102314947127706,
-            "breakdown": [
-                "\u2022 Volume Spike Konfirmasi (+25)",
-                "\u2022 Funding Rate Normal (+0.0100%) (+0)"
-            ]
-        },
-        {
-            "symbol": "ONDO/USDT",
-            "pair_name": "ONDO-IDR",
-            "harga_idr": 7233.60948,
-            "high_idr": 7278.574479999999,
-            "low_idr": 7191.34238,
-            "sl_price": 6935.279552142858,
-            "tp_price": 7449.8012,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 25,
-            "rrr": 0.7246732553883266,
-            "breakdown": [
-                "\u2022 Volume Spike Konfirmasi (+25)",
-                "\u2022 Funding Rate Normal (-0.0001%) (+0)"
-            ]
-        }
-    ],
-    "all_scanned": [
-        {
-            "symbol": "SOL/USDT",
-            "pair_name": "SOL-IDR",
-            "harga_idr": 1330784.14,
-            "high_idr": 1337798.68,
-            "low_idr": 1329345.26,
-            "sl_price": 1296771.329285714,
-            "tp_price": 1362394.535,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 25,
-            "rrr": 0.9293673276676085,
-            "breakdown": [
-                "\u2022 Volume Spike Konfirmasi (+25)",
-                "\u2022 Funding Rate Normal (+0.0050%) (+0)"
-            ]
-        },
-        {
-            "symbol": "DOT/USDT",
-            "pair_name": "DOT-IDR",
-            "harga_idr": 13869.0046,
-            "high_idr": 13912.171,
-            "low_idr": 13775.4774,
-            "sl_price": 13419.48307142857,
-            "tp_price": 14233.221099999999,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 25,
-            "rrr": 0.8102314947127706,
-            "breakdown": [
-                "\u2022 Volume Spike Konfirmasi (+25)",
-                "\u2022 Funding Rate Normal (+0.0100%) (+0)"
-            ]
-        },
-        {
-            "symbol": "ONDO/USDT",
-            "pair_name": "ONDO-IDR",
-            "harga_idr": 7233.60948,
-            "high_idr": 7278.574479999999,
-            "low_idr": 7191.34238,
-            "sl_price": 6935.279552142858,
-            "tp_price": 7449.8012,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 25,
-            "rrr": 0.7246732553883266,
-            "breakdown": [
-                "\u2022 Volume Spike Konfirmasi (+25)",
-                "\u2022 Funding Rate Normal (-0.0001%) (+0)"
-            ]
-        },
-        {
-            "symbol": "BTC/USDT",
-            "pair_name": "BTC-IDR",
-            "harga_idr": 1157816375.2,
-            "high_idr": 1162640220.4,
-            "low_idr": 1155589708.4,
-            "sl_price": 1125170500.4857142,
-            "tp_price": 1181041697.0,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 20,
-            "rrr": 0.7114320569831918,
-            "breakdown": [
-                "\u2022 Tren EMA Bullish (+20)",
-                "\u2022 Funding Rate Normal (+0.0100%) (+0)"
-            ]
-        },
         {
             "symbol": "XRP/USDT",
             "pair_name": "XRP-IDR",
-            "harga_idr": 19537.47236,
-            "high_idr": 19568.228420000003,
-            "low_idr": 19414.088399999997,
-            "sl_price": 18733.53670142857,
-            "tp_price": 19998.00389,
+            "harga_idr": 19177.105499999998,
+            "high_idr": 19265.99586,
+            "low_idr": 19149.93456,
+            "sl_price": 18909.431897142855,
+            "tp_price": 19678.2384,
             "is_entry": false,
             "is_emergency_exit": false,
             "emerg_reason": "",
             "trigger_str": "Monitoring",
-            "score": 20,
-            "rrr": 0.5728462534157907,
+            "score": 60,
+            "rrr": 1.8721790070104678,
             "breakdown": [
                 "\u2022 Tren EMA Bullish (+20)",
-                "\u2022 Funding Rate Normal (+0.0100%) (+0)"
-            ]
-        },
-        {
-            "symbol": "ADA/USDT",
-            "pair_name": "ADA-IDR",
-            "harga_idr": 2991.0718,
-            "high_idr": 3001.8633999999997,
-            "low_idr": 2973.0858,
-            "sl_price": 2779.6078285714284,
-            "tp_price": 3086.3976000000007,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 20,
-            "rrr": 0.4507897934386409,
-            "breakdown": [
-                "\u2022 Tren EMA Bullish (+20)",
-                "\u2022 Funding Rate Normal (-0.0012%) (+0)"
-            ]
-        },
-        {
-            "symbol": "ETH/USDT",
-            "pair_name": "ETH-IDR",
-            "harga_idr": 34544451.18,
-            "high_idr": 34797514.2,
-            "low_idr": 34441751.120000005,
-            "sl_price": 33277343.903571427,
-            "tp_price": 35406834.915,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 0,
-            "rrr": 0.6805925204933603,
-            "breakdown": [
-                "\u2022 Funding Rate Normal (+0.0038%) (+0)"
-            ]
-        },
-        {
-            "symbol": "BNB/USDT",
-            "pair_name": "BNB-IDR",
-            "harga_idr": 10275779.506000001,
-            "high_idr": 10296985.0,
-            "low_idr": 10249825.708,
-            "sl_price": 10111979.07692857,
-            "tp_price": 10410508.1355,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 0,
-            "rrr": 0.822516951046858,
-            "breakdown": [
-                "\u2022 Funding Rate Normal (+0.0100%) (+0)"
-            ]
-        },
-        {
-            "symbol": "SUI/USDT",
-            "pair_name": "SUI-IDR",
-            "harga_idr": 12453.5064,
-            "high_idr": 12503.8672,
-            "low_idr": 12401.347,
-            "sl_price": 12080.810785714286,
-            "tp_price": 12758.3691,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 0,
-            "rrr": 0.8179937952430187,
-            "breakdown": [
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 RRR Cukup Baik (1.87 >= 1.5) (+15)",
                 "\u2022 Funding Rate Normal (+0.0100%) (+0)"
             ]
         },
         {
             "symbol": "LINK/USDT",
             "pair_name": "LINK-IDR",
-            "harga_idr": 150835.99180000002,
-            "high_idr": 151368.3774,
-            "low_idr": 149936.6918,
-            "sl_price": 146818.43328571427,
-            "tp_price": 154848.66840000002,
+            "harga_idr": 147950.2668,
+            "high_idr": 148284.9552,
+            "low_idr": 147622.776,
+            "sl_price": 145455.6043457143,
+            "tp_price": 153155.931,
             "is_entry": false,
             "is_emergency_exit": false,
             "emerg_reason": "",
             "trigger_str": "Monitoring",
-            "score": 0,
-            "rrr": 0.9987848554617488,
+            "score": 50,
+            "rrr": 2.0867208672086694,
             "breakdown": [
-                "\u2022 Funding Rate Normal (-0.0035%) (+0)"
-            ]
-        },
-        {
-            "symbol": "AAVE/USDT",
-            "pair_name": "AAVE-IDR",
-            "harga_idr": 1804301.562,
-            "high_idr": 1811118.256,
-            "low_idr": 1794607.108,
-            "sl_price": 1726107.4270000001,
-            "tp_price": 1836514.4880000001,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 0,
-            "rrr": 0.4119608970672839,
-            "breakdown": [
-                "\u2022 Funding Rate Normal (-0.0105%) (+0)"
-            ]
-        },
-        {
-            "symbol": "ARB/USDT",
-            "pair_name": "ARB-IDR",
-            "harga_idr": 1422.6926,
-            "high_idr": 1431.6856,
-            "low_idr": 1419.0954,
-            "sl_price": 1375.9289999999999,
-            "tp_price": 1460.4632000000001,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 0,
-            "rrr": 0.807692307692305,
-            "breakdown": [
-                "\u2022 Funding Rate Normal (+0.0097%) (+0)"
-            ]
-        },
-        {
-            "symbol": "NEAR/USDT",
-            "pair_name": "NEAR-IDR",
-            "harga_idr": 29101.348,
-            "high_idr": 29191.278,
-            "low_idr": 28844.1482,
-            "sl_price": 28069.27277857143,
-            "tp_price": 30158.9248,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 0,
-            "rrr": 1.0247090309329674,
-            "breakdown": [
-                "\u2022 Funding Rate Normal (+0.0100%) (+0)"
-            ]
-        },
-        {
-            "symbol": "ZEC/USDT",
-            "pair_name": "ZEC-IDR",
-            "harga_idr": 8477089.576,
-            "high_idr": 8549177.464,
-            "low_idr": 8418868.894,
-            "sl_price": 8072612.057357143,
-            "tp_price": 8616714.894,
-            "is_entry": false,
-            "is_emergency_exit": false,
-            "emerg_reason": "",
-            "trigger_str": "Monitoring",
-            "score": 0,
-            "rrr": 0.34519920530684806,
-            "breakdown": [
-                "\u2022 Funding Rate Normal (+0.0082%) (+0)"
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 RRR Sangat Baik (2.09 >= 2.0) (+25)",
+                "\u2022 Funding Rate Normal (+0.0032%) (+0)"
             ]
         },
         {
             "symbol": "TAO/USDT",
             "pair_name": "TAO-IDR",
-            "harga_idr": 3485506.94,
-            "high_idr": 3500255.4600000004,
-            "low_idr": 3473096.6,
-            "sl_price": 3320119.246428571,
-            "tp_price": 3565724.5,
+            "harga_idr": 3386290.86,
+            "high_idr": 3393668.4,
+            "low_idr": 3371175.9,
+            "sl_price": 3315844.35,
+            "tp_price": 3567310.5,
             "is_entry": false,
             "is_emergency_exit": false,
             "emerg_reason": "",
             "trigger_str": "Monitoring",
-            "score": 0,
-            "rrr": 0.48502738183089267,
+            "score": 50,
+            "rrr": 2.569604086845476,
             "breakdown": [
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 RRR Sangat Baik (2.57 >= 2.0) (+25)",
+                "\u2022 Funding Rate Normal (+0.0050%) (+0)"
+            ]
+        }
+    ],
+    "all_scanned": [
+        {
+            "symbol": "XRP/USDT",
+            "pair_name": "XRP-IDR",
+            "harga_idr": 19177.105499999998,
+            "high_idr": 19265.99586,
+            "low_idr": 19149.93456,
+            "sl_price": 18909.431897142855,
+            "tp_price": 19678.2384,
+            "is_entry": false,
+            "is_emergency_exit": false,
+            "emerg_reason": "",
+            "trigger_str": "Monitoring",
+            "score": 60,
+            "rrr": 1.8721790070104678,
+            "breakdown": [
+                "\u2022 Tren EMA Bullish (+20)",
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 RRR Cukup Baik (1.87 >= 1.5) (+15)",
+                "\u2022 Funding Rate Normal (+0.0100%) (+0)"
+            ]
+        },
+        {
+            "symbol": "LINK/USDT",
+            "pair_name": "LINK-IDR",
+            "harga_idr": 147950.2668,
+            "high_idr": 148284.9552,
+            "low_idr": 147622.776,
+            "sl_price": 145455.6043457143,
+            "tp_price": 153155.931,
+            "is_entry": false,
+            "is_emergency_exit": false,
+            "emerg_reason": "",
+            "trigger_str": "Monitoring",
+            "score": 50,
+            "rrr": 2.0867208672086694,
+            "breakdown": [
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 RRR Sangat Baik (2.09 >= 2.0) (+25)",
+                "\u2022 Funding Rate Normal (+0.0032%) (+0)"
+            ]
+        },
+        {
+            "symbol": "TAO/USDT",
+            "pair_name": "TAO-IDR",
+            "harga_idr": 3386290.86,
+            "high_idr": 3393668.4,
+            "low_idr": 3371175.9,
+            "sl_price": 3315844.35,
+            "tp_price": 3567310.5,
+            "is_entry": false,
+            "is_emergency_exit": false,
+            "emerg_reason": "",
+            "trigger_str": "Monitoring",
+            "score": 50,
+            "rrr": 2.569604086845476,
+            "breakdown": [
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 RRR Sangat Baik (2.57 >= 2.0) (+25)",
                 "\u2022 Funding Rate Normal (+0.0050%) (+0)"
             ]
         },
         {
             "symbol": "AVAX/USDT",
             "pair_name": "AVAX-IDR",
-            "harga_idr": 116369.42,
-            "high_idr": 116855.042,
-            "low_idr": 115829.84000000001,
-            "sl_price": 113064.4925,
-            "tp_price": 119373.082,
+            "harga_idr": 114189.924,
+            "high_idr": 114585.792,
+            "low_idr": 113794.056,
+            "sl_price": 112468.66937142856,
+            "tp_price": 119426.17799999999,
             "is_entry": false,
             "is_emergency_exit": false,
             "emerg_reason": "",
             "trigger_str": "Monitoring",
-            "score": 0,
-            "rrr": 0.9088435374149635,
+            "score": 50,
+            "rrr": 3.0421146953404836,
             "breakdown": [
-                "\u2022 Funding Rate Normal (-0.0019%) (+0)"
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 RRR Sangat Baik (3.04 >= 2.0) (+25)",
+                "\u2022 Funding Rate Normal (+0.0030%) (+0)"
+            ]
+        },
+        {
+            "symbol": "DOT/USDT",
+            "pair_name": "DOT-IDR",
+            "harga_idr": 13644.850199999999,
+            "high_idr": 13715.0268,
+            "low_idr": 13603.464,
+            "sl_price": 13416.969042857143,
+            "tp_price": 13970.5416,
+            "is_entry": false,
+            "is_emergency_exit": false,
+            "emerg_reason": "",
+            "trigger_str": "Monitoring",
+            "score": 45,
+            "rrr": 1.4292160180485194,
+            "breakdown": [
+                "\u2022 Tren EMA Bullish (+20)",
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 Funding Rate Normal (+0.0100%) (+0)"
+            ]
+        },
+        {
+            "symbol": "ADA/USDT",
+            "pair_name": "ADA-IDR",
+            "harga_idr": 2934.8214,
+            "high_idr": 2945.6178000000004,
+            "low_idr": 2924.025,
+            "sl_price": 2828.8495928571433,
+            "tp_price": 3042.7854,
+            "is_entry": false,
+            "is_emergency_exit": false,
+            "emerg_reason": "",
+            "trigger_str": "Monitoring",
+            "score": 45,
+            "rrr": 1.018799272286244,
+            "breakdown": [
+                "\u2022 Tren EMA Bullish (+20)",
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 Funding Rate Normal (+0.0082%) (+0)"
+            ]
+        },
+        {
+            "symbol": "ETH/USDT",
+            "pair_name": "ETH-IDR",
+            "harga_idr": 33923188.5,
+            "high_idr": 34008839.94,
+            "low_idr": 33854631.36,
+            "sl_price": 33372965.397428572,
+            "tp_price": 34812991.800000004,
+            "is_entry": false,
+            "is_emergency_exit": false,
+            "emerg_reason": "",
+            "trigger_str": "Monitoring",
+            "score": 40,
+            "rrr": 1.6171681920326013,
+            "breakdown": [
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 RRR Cukup Baik (1.62 >= 1.5) (+15)",
+                "\u2022 Funding Rate Normal (+0.0057%) (+0)"
+            ]
+        },
+        {
+            "symbol": "SOL/USDT",
+            "pair_name": "SOL-IDR",
+            "harga_idr": 1307264.1,
+            "high_idr": 1310143.1400000001,
+            "low_idr": 1303665.3,
+            "sl_price": 1287460.4177142857,
+            "tp_price": 1341812.5799999998,
+            "is_entry": false,
+            "is_emergency_exit": false,
+            "emerg_reason": "",
+            "trigger_str": "Monitoring",
+            "score": 40,
+            "rrr": 1.744548286604336,
+            "breakdown": [
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 RRR Cukup Baik (1.74 >= 1.5) (+15)",
+                "\u2022 Funding Rate Normal (+0.0023%) (+0)"
+            ]
+        },
+        {
+            "symbol": "BNB/USDT",
+            "pair_name": "BNB-IDR",
+            "harga_idr": 10217569.008,
+            "high_idr": 10234555.343999999,
+            "low_idr": 10206196.8,
+            "sl_price": 10135638.213085715,
+            "tp_price": 10376878.886999998,
+            "is_entry": false,
+            "is_emergency_exit": true,
+            "emerg_reason": "Death Cross",
+            "trigger_str": "Monitoring",
+            "score": 40,
+            "rrr": 1.9444444444444533,
+            "breakdown": [
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 RRR Cukup Baik (1.94 >= 1.5) (+15)",
+                "\u2022 Funding Rate Normal (+0.0100%) (+0)"
+            ]
+        },
+        {
+            "symbol": "SUI/USDT",
+            "pair_name": "SUI-IDR",
+            "harga_idr": 12235.92,
+            "high_idr": 12300.6984,
+            "low_idr": 12207.1296,
+            "sl_price": 12038.808582857144,
+            "tp_price": 12554.4138,
+            "is_entry": false,
+            "is_emergency_exit": true,
+            "emerg_reason": "Death Cross",
+            "trigger_str": "Monitoring",
+            "score": 40,
+            "rrr": 1.6158059467918708,
+            "breakdown": [
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 RRR Cukup Baik (1.62 >= 1.5) (+15)",
+                "\u2022 Funding Rate Normal (+0.0100%) (+0)"
+            ]
+        },
+        {
+            "symbol": "ONDO/USDT",
+            "pair_name": "ONDO-IDR",
+            "harga_idr": 7148.1165,
+            "high_idr": 7186.803599999999,
+            "low_idr": 7125.98388,
+            "sl_price": 6977.629776428571,
+            "tp_price": 7453.1148,
+            "is_entry": false,
+            "is_emergency_exit": false,
+            "emerg_reason": "",
+            "trigger_str": "Monitoring",
+            "score": 40,
+            "rrr": 1.7889856383580185,
+            "breakdown": [
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 RRR Cukup Baik (1.79 >= 1.5) (+15)",
+                "\u2022 Funding Rate Normal (+0.0002%) (+0)"
+            ]
+        },
+        {
+            "symbol": "ARB/USDT",
+            "pair_name": "ARB-IDR",
+            "harga_idr": 1398.1338,
+            "high_idr": 1405.3314,
+            "low_idr": 1394.535,
+            "sl_price": 1375.5770357142856,
+            "tp_price": 1432.3224,
+            "is_entry": false,
+            "is_emergency_exit": false,
+            "emerg_reason": "",
+            "trigger_str": "Monitoring",
+            "score": 35,
+            "rrr": 1.5156695156694986,
+            "breakdown": [
+                "\u2022 Tren EMA Bullish (+20)",
+                "\u2022 RRR Cukup Baik (1.52 >= 1.5) (+15)",
+                "\u2022 Funding Rate Normal (+0.0088%) (+0)"
+            ]
+        },
+        {
+            "symbol": "BTC/USDT",
+            "pair_name": "BTC-IDR",
+            "harga_idr": 1142638793.3999999,
+            "high_idr": 1144952821.8,
+            "low_idr": 1141049923.2,
+            "sl_price": 1127443631.5714285,
+            "tp_price": 1164677844.6000001,
+            "is_entry": false,
+            "is_emergency_exit": true,
+            "emerg_reason": "Death Cross",
+            "trigger_str": "Monitoring",
+            "score": 25,
+            "rrr": 1.4503992421166891,
+            "breakdown": [
+                "\u2022 Volume Spike Konfirmasi (+25)",
+                "\u2022 Funding Rate Normal (+0.0100%) (+0)"
+            ]
+        },
+        {
+            "symbol": "AAVE/USDT",
+            "pair_name": "AAVE-IDR",
+            "harga_idr": 1738778.214,
+            "high_idr": 1751158.0860000001,
+            "low_idr": 1737248.7240000002,
+            "sl_price": 1693782.6746571427,
+            "tp_price": 1837331.3520000002,
+            "is_entry": false,
+            "is_emergency_exit": true,
+            "emerg_reason": "Death Cross",
+            "trigger_str": "Monitoring",
+            "score": 25,
+            "rrr": 2.190286847081544,
+            "breakdown": [
+                "\u2022 RRR Sangat Baik (2.19 >= 2.0) (+25)",
+                "\u2022 Funding Rate Normal (-0.0004%) (+0)"
+            ]
+        },
+        {
+            "symbol": "NEAR/USDT",
+            "pair_name": "NEAR-IDR",
+            "harga_idr": 28599.6636,
+            "high_idr": 28829.986800000002,
+            "low_idr": 28498.897200000003,
+            "sl_price": 28062.22137857143,
+            "tp_price": 30003.1956,
+            "is_entry": false,
+            "is_emergency_exit": false,
+            "emerg_reason": "",
+            "trigger_str": "Monitoring",
+            "score": 25,
+            "rrr": 2.611503049145051,
+            "breakdown": [
+                "\u2022 RRR Sangat Baik (2.61 >= 2.0) (+25)",
+                "\u2022 Funding Rate Normal (+0.0100%) (+0)"
+            ]
+        },
+        {
+            "symbol": "ZEC/USDT",
+            "pair_name": "ZEC-IDR",
+            "harga_idr": 8289277.986,
+            "high_idr": 8306066.387999999,
+            "low_idr": 8250914.778,
+            "sl_price": 8072208.652285715,
+            "tp_price": 8616912.738,
+            "is_entry": false,
+            "is_emergency_exit": true,
+            "emerg_reason": "Death Cross",
+            "trigger_str": "Monitoring",
+            "score": 15,
+            "rrr": 1.5093553123963879,
+            "breakdown": [
+                "\u2022 RRR Cukup Baik (1.51 >= 1.5) (+15)",
+                "\u2022 Funding Rate Normal (+0.0084%) (+0)"
             ]
         }
     ]
