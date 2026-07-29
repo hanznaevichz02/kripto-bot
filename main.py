@@ -1,7 +1,7 @@
 """
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
-   Versi: 3.9.0 (Complete Futures Map, Clean HTML & Live Price Sync)
+   Versi: 3.9.1 (Synced, Stabilized & Clean HTML)
    SPOT MARKET
 ========================================================
 """
@@ -37,7 +37,7 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 PORTFOLIO: Dict[str, Dict[str, float]] = {
     'BTC/USDT': {'buy_price_idr': 1_311_140_722, 'amount': 0.00076261},
     'ETH/USDT': {'buy_price_idr':    37_447_016, 'amount': 0.05060638},
-    'AVAX/USDT': {'buy_price_idr':       118_350, 'amount': 5.8661},
+    'AVAX/USDT': {'buy_price_idr':      118_350, 'amount': 5.8661},
 }
 
 ASSET_LIST: List[str] = [
@@ -249,7 +249,7 @@ def analisa(
         'rrr': rrr_buy, 
         'high_price': latest_c['high'] * usd_idr, 
         'low_price': latest_c['low'] * usd_idr,
-        'skor': 0.0,
+        'skor': 75.0, # Skor default agar kompatibel dengan paper trader
     }
 
     strength = '🔥🔥🔥' if vol_ultra else '🔥🔥'
@@ -333,7 +333,10 @@ async def kirim_laporan(bot: Bot, exchange: ccxt.Exchange, usd_idr: float, fear_
     total_modal = total_nilai = 0.0
     baris = []
 
-    tickers = await exchange.fetch_tickers(list(PORTFOLIO.keys()))
+    try:
+        tickers = await exchange.fetch_tickers(list(PORTFOLIO.keys()))
+    except Exception:
+        tickers = {}
 
     for sym, p in PORTFOLIO.items():
         try:
@@ -502,6 +505,7 @@ async def main():
             "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
             "symbol": best_signal['symbol'] if best_signal else "NONE",
             "signal_type": best_signal['tipe'] if best_signal else None,
+            "score": best_signal.get('skor', 75.0) if best_signal else 0.0,
             "current_price": best_signal['harga'] if best_signal else 0.0,
             "high_price": best_signal['high_price'] if best_signal else 0.0,
             "low_price": best_signal['low_price'] if best_signal else 0.0,
@@ -519,9 +523,17 @@ async def main():
             await kirim_laporan(bot, exchange, usd_idr, fear_greed)
             logger.info("📊 Laporan portofolio terkirim")
 
+    except Exception as e:
+        logger.error(f"Error utama pada executor main(): {e}")
     finally:
-        await exchange.close()
-        await exchange_futures.close()
+        try:
+            await exchange.close()
+        except Exception:
+            pass
+        try:
+            await exchange_futures.close()
+        except Exception:
+            pass
 
 if __name__ == '__main__':
     asyncio.run(main())
