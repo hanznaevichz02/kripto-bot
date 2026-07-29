@@ -1,12 +1,12 @@
 {
-    "timestamp": "2026-07-29 21:47:07",
-    "symbol": "LINK/USDT",
-    "signal_type": "AKUMULASI",
-    "score": 75.0,
-    "current_price": 149049.0,
-    "high_price": 150426.0,
-    "low_price": 148755.6,
-    "sl_price": 146770.81714285712,
-    "tp_price": 153207.0,
-    "rrr": 1.83
+    "timestamp": "2026-07-29 22:05:44",
+    "symbol": "NONE",
+    "signal_type": null,
+    "score": 0.0,
+    "current_price": 0.0,
+    "high_price": 0.0,
+    "low_price": 0.0,
+    "sl_price": 0.0,
+    "tp_price": 0.0,
+    "rrr": 0.0
 }
