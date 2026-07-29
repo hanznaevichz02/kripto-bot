@@ -1,7 +1,7 @@
 """
 ========================================================
-    KRIPTO BOT — Analisa Simpel, Dinamis & Presisi Layout (v5.1 Fix Layout)
-    Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, & Presisi Risk Mgt
+    KRIPTO BOT — Analisa Simpel, Dinamis & Presisi Layout (v5.2 FVG & Funding Rate)
+    Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, FVG, Funding Rate & Presisi Risk Mgt
 ========================================================
 """
 
@@ -38,28 +38,49 @@ def rapihkan_teks(label: str, teks: str, width: int = 35) -> str:
     indent_spasi = " " * len(label)
     return textwrap.fill(teks, width=width, initial_indent=label, subsequent_indent=indent_spasi)
 
-def hitung_skor_smc(choch: bool, bos: bool, mitigation: bool, rrr: float, volume_spike: bool):
-    """Menghitung Skor Setup SMC kuantitatif (0-100)"""
+def cek_fvg(df):
+    """Mendeteksi Fair Value Gap (FVG) dari 3 candle terakhir"""
+    fvg_bullish = False
+    fvg_bearish = False
+    for i in range(len(df) - 1, 2, -1):
+        # Bullish FVG: Low candle saat ini > High candle 2 periode sebelumnya
+        if df['low'].iloc[i] > df['high'].iloc[i-2]:
+            fvg_bullish = True
+            break
+        # Bearish FVG: High candle saat ini < Low candle 2 periode sebelumnya
+        if df['high'].iloc[i] < df['low'].iloc[i-2]:
+            fvg_bearish = True
+            break
+    return fvg_bullish, fvg_bearish
+
+def hitung_skor_smc(choch: bool, bos: bool, mitigation: bool, fvg: bool, rrr: float, volume_spike: bool):
+    """Menghitung Skor Setup SMC kuantitatif (0-100) dengan tambahan FVG"""
     score = 0
     breakdown = []
     
     if choch:
-        score += 35
-        breakdown.append("• Konfirmasi CHoCH Valid (+35)")
+        score += 30
+        breakdown.append("• Konfirmasi CHoCH Valid (+30)")
     else:
         breakdown.append("• Tanpa CHoCH (+0)")
         
     if bos:
-        score += 25
-        breakdown.append("• Struktur BOS Terbentuk (+25)")
+        score += 20
+        breakdown.append("• Struktur BOS Terbentuk (+20)")
     else:
         breakdown.append("• Tanpa BOS (+0)")
         
     if mitigation:
-        score += 20
-        breakdown.append("• Area Mitigasi OB Tersentuh (+20)")
+        score += 15
+        breakdown.append("• Area Mitigasi OB Tersentuh (+15)")
     else:
         breakdown.append("• Belum Menyentuh OB (+0)")
+
+    if fvg:
+        score += 15
+        breakdown.append("• Area FVG Valid Terbentuk (+15)")
+    else:
+        breakdown.append("• Tanpa FVG Aktif (+0)")
         
     if volume_spike:
         score += 10
@@ -76,8 +97,9 @@ def hitung_skor_smc(choch: bool, bos: bool, mitigation: bool, rrr: float, volume
     return min(score, 100), breakdown
 
 def run_analysis():
-    print(f"DEBUG: Memulai analisa hybrid SMC untuk {SYMBOL}...")
-    exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
+    print(f"DEBUG: Memulai analisa hybrid SMC futures untuk {SYMBOL}...")
+    # Menggunakan defaultType 'swap' untuk akses data Futures & Funding Rate
+    exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'swap'}, 'timeout': 30000})
     
     try:
         exchange.load_markets()
@@ -86,6 +108,27 @@ def run_analysis():
         return
 
     usd_idr = get_usd_idr()
+
+    # --- AMBIL FUNDING RATE FUTURES ---
+    funding_rate = 0.0
+    try:
+        target_swap_symbol = SYMBOL if ':' in SYMBOL else f"{SYMBOL}:USDT"
+        fr_data = exchange.fetch_funding_rate(target_swap_symbol)
+        funding_rate = float(fr_data.get('fundingRate', 0.0) or 0.0)
+    except Exception:
+        try:
+            fr_data = exchange.fetch_funding_rate(SYMBOL)
+            funding_rate = float(fr_data.get('fundingRate', 0.0) or 0.0)
+        except Exception:
+            funding_rate = 0.0
+
+    fr_persen = funding_rate * 100
+    if fr_persen > 0.02:
+        status_fr = f"{fr_persen:.4f}% (Long Overcrowded 🔥)"
+    elif fr_persen < -0.01:
+        status_fr = f"{fr_persen:.4f}% (Short Overcrowded 💧)"
+    else:
+        status_fr = f"{fr_persen:.4f}% (Normal / Seimbang ⚖️)"
 
     try:
         # Menarik data 1H, 4H, dan 1D
@@ -178,14 +221,17 @@ def run_analysis():
         else:
             status_rsi = f"Wajar/Normal ({rsi_4h:.0f})"
 
-        # --- PENDETEKSI LOGIKA KUANTITATIF SMC ---
+        # --- PENDETEKSI LOGIKA KUANTITATIF SMC & FVG ---
         choch = bool(curr_1h['close'] > curr_1h['open'] and curr_1h['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.5))
         bos = bool(curr_1h['close'] > df_1h['high'].iloc[-5:-2].max())
         mitigation = bool((df_4h['low'].iloc[-1] * usd_idr) <= (s1_4h_idr * 1.005))
         vol_spike = bool(curr_1h['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.8))
+        
+        fvg_bull, fvg_bear = cek_fvg(df_1h)
+        fvg_active = fvg_bull if is_bullish_4h else fvg_bear
+        fvg_teks_status = "Aktif (Gap Valid) ✅" if fvg_active else "Tidak Ada / Tertutup ❌"
 
-        skor_smc, breakdown_skor = hitung_skor_smc(choch, bos, mitigation, rrr_4h, vol_spike)
-
+        skor_smc, breakdown_skor = hitung_skor_smc(choch, bos, mitigation, fvg_active, rrr_4h, vol_spike)
         label_skor = "🔥 HIGH" if skor_smc >= 80 else ("🎯 POTENSIAL" if skor_smc >= 60 else "⚠️ STANDAR")
 
         # --- LOGIKA TEKS SMC 4H ---
@@ -224,6 +270,8 @@ def run_analysis():
             f"🔍 [ANALISA PASAR] — {PAIR_NAME}\n"
             f"----------------------------------\n"
             f"• Harga       : Rp {harga_sekarang:,.0f}\n"
+            f"• Funding Rate: {status_fr}\n"
+            f"• Kondisi FVG : {fvg_teks_status}\n"
             f"• Kondisi RSI : {status_rsi}\n"
             f"• Skor Setup  : {skor_smc}/100 ({label_skor})\n"
             f"• Est. RRR    : 1 : {rrr_4h:.2f}\n"
@@ -245,7 +293,7 @@ def run_analysis():
             f"{smc_1d_sl_fmt}\n"
             f"{smc_1d_tp_fmt}\n"
             f"----------------------------------\n"
-            f"📋 RINCIAN SKOR SETUP (SMC)\n"
+            f"📋 RINCIAN SKOR SETUP (SMC + FVG)\n"
             f"{breakdown_str}\n"
             f"```"
         )
