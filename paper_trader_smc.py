@@ -3,7 +3,7 @@
    KRIPTO BOT — SMC Swing Edition (Multi-Asset Paper Trading)
    Strategi: Smart Money Concepts (CHoCH, BOS, Order Block, Swing 4H)
    Market  : MURNI SPOT 100% (Multi-Asset Watchlist)
-   Versi   : 4.2.1 (Layout Presisi Sejajar Bot AGR)
+   Versi   : 4.3.0 (Funding Rate & Market Sentiment Integrated)
 ========================================================
 """
 
@@ -23,8 +23,8 @@ CHAT_ID             = os.getenv("TELEGRAM_CHAT_ID")
 INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_smc.json"
 SIGNAL_FILE         = "signal_smc.json"
-FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (1.3% per siklus roundtrip)
-MIN_SCORE_ENTRY     = 70   # Batas minimal skor kelayakan entry SMC
+FEE_TAX_RATE        = 0.013   # Fee + Pajak PMK 68 (1.3% per siklus roundtrip)
+MIN_SCORE_ENTRY     = 70      # Batas minimal skor kelayakan entry SMC
 
 # Watchlist Multi-Asset Spot
 WATCHLIST = [
@@ -34,6 +34,15 @@ WATCHLIST = [
     {"symbol": "ADA/USDT", "pair": "ADA-IDR"},
     {"symbol": "XRP/USDT", "pair": "XRP-IDR"}
 ]
+
+# Mapping Simbol Spot ke Kucoin Futures untuk Fetch Funding Rate
+FUTURES_MAP = {
+    "BTC/USDT": "XBTUSDTM",
+    "ETH/USDT": "ETHUSDTM",
+    "SOL/USDT": "SOLUSDTM",
+    "ADA/USDT": "ADAUSDTM",
+    "XRP/USDT": "XRPUSDTM"
+}
 
 # --- MANAJEMEN STATE ---
 def load_state():
@@ -77,12 +86,21 @@ def get_usd_idr():
     except Exception:
         return 18000.0
 
+def get_funding_rate(exchange_futures, futures_symbol):
+    """Mengambil nilai Funding Rate dari Kucoin Futures."""
+    try:
+        info = exchange_futures.fetch_funding_rate(futures_symbol)
+        return float(info.get('fundingRate', 0))
+    except Exception as e:
+        print(f"Gagal ambil funding rate {futures_symbol}: {e}")
+        return None
+
 def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
     swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
     swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
     return {'swing_high': swing_high, 'swing_low': swing_low}
 
-def hitung_skor_smc(choch, bos, mitigation, rrr, volume_spike):
+def hitung_skor_smc(choch, bos, mitigation, rrr, volume_spike, funding_rate=None):
     score = 0
     breakdown = []
     
@@ -115,8 +133,23 @@ def hitung_skor_smc(choch, bos, mitigation, rrr, volume_spike):
         breakdown.append(f"• RRR Ideal ({rrr:.2f} >= 2.0) (+10)")
     else:
         breakdown.append(f"• RRR Cukup ({rrr:.2f} < 2.0) (+0)")
+
+    # --- SKORING TERINTEGRASI FUNDING RATE ---
+    if funding_rate is not None:
+        fr_pct = funding_rate * 100
+        if funding_rate < -0.0005:    # < -0.05% (Potensi Short Squeeze)
+            score += 15
+            breakdown.append(f"• Funding Rate Negatif Squeeze ({fr_pct:.4f}%) (+15)")
+        elif funding_rate > 0.0005:   # > +0.05% (Overheated Long / Rawan Dump)
+            score -= 15
+            breakdown.append(f"• Funding Rate Overheated Long ({fr_pct:.4f}%) (-15)")
+        else:
+            breakdown.append(f"• Funding Rate Normal ({fr_pct:+.4f}%) (+0)")
+    else:
+        breakdown.append("• Funding Rate: N/A (+0)")
         
-    return min(score, 100), breakdown
+    final_score = max(0, min(score, 100))
+    return final_score, breakdown
 
 class SmcPaperTrader:
     def __init__(self):
@@ -237,10 +270,14 @@ class SmcPaperTrader:
         return None
 
 async def main():
-    print("DEBUG: Menjalankan Paper Trader SMC Multi-Asset Scanner...")
-    exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
+    print("DEBUG: Menjalankan Paper Trader SMC Multi-Asset Scanner (v4.3.0)...")
+    
+    # Inisialisasi Kucoin Spot & Futures
+    exchange_spot = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
+    exchange_futures = ccxt.kucoinfutures({'enableRateLimit': True, 'timeout': 30000})
+    
     try:
-        exchange.load_markets()
+        exchange_spot.load_markets()
     except Exception as e:
         print(f"Gagal memuat market: {e}")
         return
@@ -257,8 +294,8 @@ async def main():
         symbol = item["symbol"]
         pair_name = item["pair"]
         try:
-            bars_1h = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
-            bars_4h = exchange.fetch_ohlcv(symbol, timeframe='4h', limit=30)
+            bars_1h = exchange_spot.fetch_ohlcv(symbol, timeframe='1h', limit=50)
+            bars_4h = exchange_spot.fetch_ohlcv(symbol, timeframe='4h', limit=30)
             if len(bars_1h) < 40 or len(bars_4h) < 15:
                 continue
 
@@ -287,13 +324,18 @@ async def main():
             reward = tp_price - harga_idr
             rrr = (reward / risk) if risk > 0 else 0
 
-            # Deteksi Sederhana SMC
+            # Deteksi SMC
             choch = bool(curr['close'] > curr['open'] and curr['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.5))
             bos = bool(curr['close'] > df_1h['high'].iloc[-5:-2].max())
             mitigation = bool(low_idr <= (swing['swing_low'] * usd_idr * 1.01))
             vol_spike = bool(curr['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.8))
 
-            score, breakdown = hitung_skor_smc(choch, bos, mitigation, rrr, vol_spike)
+            # Fetch Funding Rate Kucoin Futures
+            futures_symbol = FUTURES_MAP.get(symbol)
+            funding_rate = get_funding_rate(exchange_futures, futures_symbol) if futures_symbol else None
+
+            # Kalkulasi Skor SMC Terintegrasi FR
+            score, breakdown = hitung_skor_smc(choch, bos, mitigation, rrr, vol_spike, funding_rate)
             
             if score >= MIN_SCORE_ENTRY:
                 candidates.append({
@@ -323,7 +365,7 @@ async def main():
         active_pair = active_pos["pair"]
         for item in WATCHLIST:
             if item["pair"] == active_pair:
-                bars_1h = exchange.fetch_ohlcv(item["symbol"], timeframe='1h', limit=10)
+                bars_1h = exchange_spot.fetch_ohlcv(item["symbol"], timeframe='1h', limit=10)
                 df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
                 curr = df_1h.iloc[-2]
                 latest = df_1h.iloc[-1]
