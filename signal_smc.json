@@ -1,11 +1,11 @@
 {
-    "timestamp": "2026-07-29 10:05:40",
+    "timestamp": "2026-07-29 11:05:41",
     "symbol": "ADA/USDT",
-    "signal_type": "BULL_BREAKOUT",
-    "current_price": 2987.859,
-    "high_price": 3005.8689999999997,
-    "low_price": 2912.217,
-    "sl_price": 2745.302892857143,
-    "tp_price": 3097.2697499999995,
-    "rrr": 0.45
+    "signal_type": "BULL_OB",
+    "current_price": 2944.7985000000003,
+    "high_price": 2991.6271,
+    "low_price": 2937.5941,
+    "sl_price": 2744.554775,
+    "tp_price": 3006.0359,
+    "rrr": 0.31
 }
