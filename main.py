@@ -1,7 +1,7 @@
 """
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
-   Versi: 3.8.0 (Multi-Asset Batch Scan, RRR Ranking & JSON Export)
+   Versi: 3.9.0 (Complete Futures Map, Clean HTML & Live Price Sync)
    SPOT MARKET
 ========================================================
 """
@@ -47,16 +47,24 @@ ASSET_LIST: List[str] = [
     'ADA/USDT'
 ]
 
+# Mapping Simbol Spot ke Kucoin Futures (Lengkap 16 Koin)
 FUTURES_MAP: Dict[str, str] = {
     'BTC/USDT': 'XBTUSDTM',
     'ETH/USDT': 'ETHUSDTM',
     'SOL/USDT': 'SOLUSDTM',
     'BNB/USDT': 'BNBUSDTM',
+    'SUI/USDT': 'SUIUSDTM',
     'XRP/USDT': 'XRPUSDTM',
     'LINK/USDT': 'LINKUSDTM',
     'AAVE/USDT': 'AAVEUSDTM',
     'DOT/USDT':  'DOTUSDTM',
+    'ONDO/USDT': 'ONDOUSDTM',
+    'ARB/USDT':  'ARBUSDTM',
+    'NEAR/USDT': 'NEARUSDTM',
+    'ZEC/USDT':  'ZECUSDTM',
+    'TAO/USDT':  'TAOUSDTM',
     'AVAX/USDT': 'AVAXUSDTM',
+    'ADA/USDT':  'ADAUSDTM'
 }
 
 JAM_LAPORAN = {9, 14, 20}
@@ -115,7 +123,7 @@ def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
         (df['high'] - df['close'].shift()).abs(),
         (df['low']  - df['close'].shift()).abs(),
     ], axis=1).max(axis=1)
-    return float(tr.rolling(period).mean().iloc[-1])
+    return float(tr.rolling(period).mean().iloc[-2]) # Candle tertutup
 
 def hitung_volume_delta(df: pd.DataFrame) -> pd.Series:
     hl = (df['high'] - df['low']).replace(0, 1e-9)
@@ -169,8 +177,12 @@ def analisa(
     df_4h['ema50'] = df_4h['close'].ewm(span=50, adjust=False).mean()
     trend_4h_bull = df_4h['close'].iloc[-1] > df_4h['ema50'].iloc[-1]
 
+    # Candle Tertutup untuk Indikator (Bebas Repainting)
     c, p = df_1h.iloc[-2], df_1h.iloc[-3]
-    harga_idr = c['close'] * usd_idr
+    
+    # Candle Berjalan (Harga Live untuk JSON & Notif)
+    latest_c = df_1h.iloc[-1]
+    harga_idr = latest_c['close'] * usd_idr
     atr_idr = hitung_atr(df_1h) * usd_idr
 
     avg_vol = df_1h['volume'].iloc[-21:-1].median()
@@ -234,7 +246,9 @@ def analisa(
         'is_weekend': is_weekend, 'vol_ultra': vol_ultra,
         'sl_buy': sl_buy, 'tp_buy': tp_buy,
         'sl_sell': sl_sell, 'tp_sell': tp_sell,
-        'rrr': rrr_buy, 'high_price': c['high'] * usd_idr, 'low_price': c['low'] * usd_idr,
+        'rrr': rrr_buy, 
+        'high_price': latest_c['high'] * usd_idr, 
+        'low_price': latest_c['low'] * usd_idr,
         'skor': 0.0,
     }
 
@@ -260,7 +274,7 @@ def analisa(
     return None
 
 # ============================================================
-# TELEGRAM FORMATTER & SENDER
+# TELEGRAM FORMATTER & SENDER (CLEAN HTML FORMAT)
 # ============================================================
 
 def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
@@ -285,18 +299,19 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
         rm_label_1, rm_val_1 = "Serok Bawah", format_rp(s['tp_sell'])
         rm_label_2, rm_val_2 = "Invalidasi ", format_rp(s['sl_sell'])
 
-    header = f"🚨 *WARNING PORTOFOLIO — {symbol}*" if is_porto_alert else f"⚡ *QUANT SIGNAL — {symbol}*"
+    header = f"🚨 <b>WARNING PORTOFOLIO — {symbol}</b>" if is_porto_alert else f"⚡ <b>QUANT SIGNAL — {symbol}</b>"
+    vol_ultra_str = " (ULTRA)" if s.get('vol_ultra') else ""
 
     return (
         f"{header} {s['strength']}\n"
-        f"```\n"
+        f"<code>"
         f"[ 1. SIGNAL DETECTION ]\n"
         f"  • Trigger : {judul}\n"
         f"  • Tren 4H : {s['trend_4h']}\n"
         f"  • Harga   : {harga}\n"
         f"------------------------------\n"
         f"[ 2. MARKET METRICS ]\n"
-        f"  • Volume  : {s['vol_ratio']}x median" + (" (ULTRA)" if s.get('vol_ultra') else "") + "\n"
+        f"  • Volume  : {s['vol_ratio']}x median{vol_ultra_str}\n"
         f"  • Delta   : {'Beli Dominan' if s['cvd_naik'] else 'Jual Dominan'}\n"
         f"  • Funding : {fr_str}\n"
         f"  • Market  : {s['fear_greed']['value']} ({s['fear_greed']['label']})\n"
@@ -305,9 +320,9 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
         f"  • {rm_label_1} : {rm_val_1}\n"
         f"  • {rm_label_2} : {rm_val_2}\n"
         f"  • RRR Ratio : {s.get('rrr', 0.0):.2f}x\n"
-        f"```\n"
-        f"🎯 *ACTION PLAN :* {s['aksi']}\n"
-        f"💡 *Insight    :* {ket}"
+        f"</code>\n"
+        f"🎯 <b>ACTION PLAN :</b> {s['aksi']}\n"
+        f"💡 <b>Insight    :</b> {ket}"
     )
 
 # ============================================================
@@ -334,10 +349,10 @@ async def kirim_laporan(bot: Bot, exchange: ccxt.Exchange, usd_idr: float, fear_
             total_nilai += nilai
 
             baris.append(
-                f"{ikon} *{sym}*\n```\n"
+                f"{ikon} <b>{sym}</b>\n<code>"
                 f"Beli : {format_rp(p['buy_price_idr'])}\n"
                 f"Skrg : {format_rp(harga_kini)}\n"
-                f"P/L  : {pnl_pct:+.2f}% ({format_rp(pnl_val)})\n```"
+                f"P/L  : {pnl_pct:+.2f}% ({format_rp(pnl_val)})\n</code>"
             )
         except Exception as e:
             baris.append(f"⚠️ {sym} — gagal ({e})")
@@ -363,18 +378,18 @@ async def kirim_laporan(bot: Bot, exchange: ccxt.Exchange, usd_idr: float, fear_
     analisis_pasar = behavior_map.get(fear_greed['label'], "Ritel & Bandar Bergerak Dinamis")
 
     pesan = (
-        f"📊 *PORTOFOLIO — {now_wib.strftime('%d %b %Y, %H:%M WIB')}*\n\n"
+        f"📊 <b>PORTOFOLIO — {now_wib.strftime('%d %b %Y, %H:%M WIB')}</b>\n\n"
         + "\n".join(baris)
         + f"\n────────────────────\n"
-        + f"{ikon_total} *SUMMARY*\n```\n"
+        + f"{ikon_total} <b>SUMMARY</b>\n<code>"
         + f"Total Beli : {format_rp(total_modal)}\n"
         + f"Total Skrg : {format_rp(total_nilai)}\n"
         + f"Total P/L  : {total_pnl_pct:+.2f}% ({format_rp(total_pnl)})\n"
         + f"------------------------------\n"
         + f"Pasar      : {fear_greed['value']} — {label_indo}\n"
-        + f"Aksi       : {analisis_pasar}\n```"
+        + f"Aksi       : {analisis_pasar}\n</code>"
     )
-    await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+    await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
 
 # ============================================================
 # WORKER SCANNER PER ASSET (PARALLEL)
@@ -420,7 +435,7 @@ async def scan_asset(
             elif is_porto:
                 logger.warning(f"🚨 WARNING PORTOFOLIO: {symbol} terdeteksi sinyal JUAL/DUMP ({hasil['tipe']})!")
                 pesan_warning = format_pesan(symbol, hasil, is_porto_alert=True)
-                await bot.send_message(chat_id=CHAT_ID, text=pesan_warning, parse_mode='Markdown')
+                await bot.send_message(chat_id=CHAT_ID, text=pesan_warning, parse_mode='HTML')
                 return None
             else:
                 logger.info(f"⚠️ {symbol}: Sinyal {hasil['tipe']} (Jual/Bearish) diabaikan (Bukan Porto).")
@@ -477,7 +492,7 @@ async def main():
 
             for item in top_prospek:
                 pesan = format_pesan(item['symbol'], item)
-                await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
+                await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
                 logger.info(f"✅ Terkirim: {item['symbol']} (RRR: {item['rrr']:.2f}x | Vol: {item['vol_ratio']}x)")
         else:
             logger.info("— Tidak ada sinyal BELI yang valid pada siklus ini.")
