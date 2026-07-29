@@ -1,11 +1,11 @@
 {
-    "timestamp": "2026-07-29 08:05:46",
-    "symbol": "BNB/USDT",
-    "signal_type": "AKUMULASI",
-    "current_price": 10294820.004,
-    "high_price": 10327018.426,
-    "low_price": 10280169.632,
-    "sl_price": 10093934.684214285,
-    "tp_price": 10485882.2725,
-    "rrr": 0.95
+    "timestamp": "2026-07-29 09:05:48",
+    "symbol": "NONE",
+    "signal_type": null,
+    "current_price": 0.0,
+    "high_price": 0.0,
+    "low_price": 0.0,
+    "sl_price": 0.0,
+    "tp_price": 0.0,
+    "rrr": 0.0
 }
