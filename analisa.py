@@ -1,7 +1,7 @@
 """
 ========================================================
-    KRIPTO BOT — Analisa Simpel, Dinamis & Presisi Layout (v5.0 Hybrid SMC)
-    Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, & RRR
+    KRIPTO BOT — Analisa Simpel, Dinamis & Presisi Layout (v5.1 Fix Layout)
+    Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, & Presisi Risk Mgt
 ========================================================
 """
 
@@ -57,13 +57,13 @@ def hitung_skor_smc(choch: bool, bos: bool, mitigation: bool, rrr: float, volume
         
     if mitigation:
         score += 20
-        breakdown.append("• Area Mitigasi / Order Block Tersentuh (+20)")
+        breakdown.append("• Area Mitigasi OB Tersentuh (+20)")
     else:
         breakdown.append("• Belum Menyentuh OB (+0)")
         
     if volume_spike:
         score += 10
-        breakdown.append("• Lonjakan Volume Konfirmasi (+10)")
+        breakdown.append("• Lonjakan Volume (+10)")
     else:
         breakdown.append("• Volume Standar (+0)")
         
@@ -156,7 +156,7 @@ def run_analysis():
             sl_1d_idr = s2_1d_idr - (1.0 * atr_idr)
             tp_1d_idr = r1_1d_idr
 
-        # --- HITUNG ETIMASI RRR ---
+        # --- HITUNG ESTIMASI RRR ---
         risk_4h = abs(harga_sekarang - sl_4h_idr)
         reward_4h = abs(tp_4h_idr - harga_sekarang)
         rrr_4h = (reward_4h / risk_4h) if risk_4h > 0 else 0.0
@@ -186,36 +186,34 @@ def run_analysis():
 
         skor_smc, breakdown_skor = hitung_skor_smc(choch, bos, mitigation, rrr_4h, vol_spike)
 
-        label_skor = "🔥 SANGAT POTENSIAL" if skor_smc >= 80 else ("🎯 POTENSI HIGH" if skor_smc >= 60 else "⚠️ STANDAR/NEUTRAL")
+        label_skor = "🔥 HIGH" if skor_smc >= 80 else ("🎯 POTENSIAL" if skor_smc >= 60 else "⚠️ STANDAR")
 
         # --- LOGIKA TEKS SMC 4H ---
         if is_bullish_4h:
             smc_4h_k = f"Tren 4H NAIK. Skor Setup ({skor_smc}/100) mengonfirmasi dorongan."
             smc_4h_r = "Beli bertahap saat koreksi tipis di area Lantai 1 4H."
-            smc_4h_h = f"SL : Rp {sl_4h_idr:,.0f}\nTP : Rp {tp_4h_idr:,.0f} (RRR 1:{rrr_4h:.2f})"
         else:
             smc_4h_k = f"Tren 4H TURUN. Tekanan jual terasa, Skor Setup ({skor_smc}/100)."
             smc_4h_r = "Wait & See dulu. Tunggu pantulan aman dekat Lantai 1 4H."
-            smc_4h_h = f"SL : Rp {sl_4h_idr:,.0f}\nTP : Rp {tp_4h_idr:,.0f} (RRR 1:{rrr_4h:.2f})"
 
         # --- LOGIKA TEKS SMC 1D ---
         if is_bullish_1d:
             smc_1d_k = "Tren makro 1D NAIK kuat. Bandar makro menjaga harga."
             smc_1d_r = "Bagus untuk posisi Swing. Struktur makro sangat sehat."
-            smc_1d_h = f"SL : Rp {sl_1d_idr:,.0f}\nTP : Rp {tp_1d_idr:,.0f}"
         else:
             smc_1d_k = "Tren makro 1D TURUN. Bandar makro cenderung distribusi/jual."
             smc_1d_r = "Hindari hold terlalu lama. Utamakan quick trade saja."
-            smc_1d_h = f"SL : Rp {sl_1d_idr:,.0f}\nTP : Rp {tp_1d_idr:,.0f}"
 
-        # --- FORMATTING PARAGRAF ---
-        smc_4h_k_fmt = rapihkan_teks("• Kondisi  : ", smc_4h_k)
-        smc_4h_r_fmt = rapihkan_teks("• Rekom    : ", smc_4h_r)
-        smc_4h_h_fmt = rapihkan_teks("• Risk Mgt : ", smc_4h_h)
+        # --- FORMATTING PARAGRAF RAPI (TITIK DUA SEJAJAR DI KARAKTER 13) ---
+        smc_4h_k_fmt  = rapihkan_teks("• Kondisi   : ", smc_4h_k)
+        smc_4h_r_fmt  = rapihkan_teks("• Rekom     : ", smc_4h_r)
+        smc_4h_sl_fmt = rapihkan_teks("• Target SL : ", f"Rp {sl_4h_idr:,.0f}")
+        smc_4h_tp_fmt = rapihkan_teks("• Target TP : ", f"Rp {tp_4h_idr:,.0f} (RRR 1:{rrr_4h:.2f})")
 
-        smc_1d_k_fmt = rapihkan_teks("• Kondisi  : ", smc_1d_k)
-        smc_1d_r_fmt = rapihkan_teks("• Rekom    : ", smc_1d_r)
-        smc_1d_h_fmt = rapihkan_teks("• Risk Mgt : ", smc_1d_h)
+        smc_1d_k_fmt  = rapihkan_teks("• Kondisi   : ", smc_1d_k)
+        smc_1d_r_fmt  = rapihkan_teks("• Rekom     : ", smc_1d_r)
+        smc_1d_sl_fmt = rapihkan_teks("• Target SL : ", f"Rp {sl_1d_idr:,.0f}")
+        smc_1d_tp_fmt = rapihkan_teks("• Target TP : ", f"Rp {tp_1d_idr:,.0f}")
 
         breakdown_str = "\n".join(breakdown_skor)
 
@@ -238,12 +236,14 @@ def run_analysis():
             f"📋 PERSPEKTIF SMC 4H (JANGKA PENDEK)\n"
             f"{smc_4h_k_fmt}\n"
             f"{smc_4h_r_fmt}\n"
-            f"{smc_4h_h_fmt}\n"
+            f"{smc_4h_sl_fmt}\n"
+            f"{smc_4h_tp_fmt}\n"
             f"----------------------------------\n"
             f"📋 PERSPEKTIF SMC 1D (JANGKA PANJANG)\n"
             f"{smc_1d_k_fmt}\n"
             f"{smc_1d_r_fmt}\n"
-            f"{smc_1d_h_fmt}\n"
+            f"{smc_1d_sl_fmt}\n"
+            f"{smc_1d_tp_fmt}\n"
             f"----------------------------------\n"
             f"📋 RINCIAN SKOR SETUP (SMC)\n"
             f"{breakdown_str}\n"
