@@ -1,8 +1,7 @@
+"""
 ========================================================
     KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading)
-    Mode    : MULTI-ASSET SCANNER + RANKING SYSTEM (16 Koin)
-    Aturan  : STRICT 1 OPEN POSITION ONLY + JSON SIGNAL OUTPUT
-    Versi   : 4.3.1 (Anti-Fake Sweep & Strict Confirmation)
+    Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, FVG, & Paper Trading
 ========================================================
 """
 
