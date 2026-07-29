@@ -1,7 +1,7 @@
 """
 ========================================================
-    KRIPTO BOT — Advanced Analysis Script
-    Fungsi  : Menganalisa tren, RSI, & Skenario Trading (TP/SL)
+    KRIPTO BOT — Analisa Simpel & Praktis
+    Fungsi  : Menganalisa 4H & 1D dengan Bahasa Awam
 ========================================================
 """
 
@@ -10,11 +10,13 @@ import ccxt
 import pandas as pd
 import requests
 from telegram import Bot
+import asyncio
 
 # --- KONFIGURASI ---
 TOKEN  = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+# Menangkap input simbol dari GitHub Actions (default ke BTC/USDT)
 raw_symbol = os.getenv("INPUT_SYMBOL", "BTC/USDT").upper().strip()
 if "/" not in raw_symbol:
     SYMBOL = f"{raw_symbol}/USDT"
@@ -30,8 +32,8 @@ def get_usd_idr() -> float:
     except Exception:
         return 18000.0
 
-def run_advanced_analysis():
-    print(f"DEBUG: Memulai analisa lanjutan untuk {SYMBOL}...")
+def run_analysis():
+    print(f"DEBUG: Memulai analisa manual untuk {SYMBOL}...")
     exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
     
     try:
@@ -43,94 +45,111 @@ def run_advanced_analysis():
     usd_idr = get_usd_idr()
 
     try:
-        bars_1h = exchange.fetch_ohlcv(SYMBOL, timeframe='1h', limit=50)
-        bars_4h = exchange.fetch_ohlcv(SYMBOL, timeframe='4h', limit=30)
+        # Menarik data 4H dan 1D
+        bars_4h = exchange.fetch_ohlcv(SYMBOL, timeframe='4h', limit=50)
+        bars_1d = exchange.fetch_ohlcv(SYMBOL, timeframe='1d', limit=30)
 
-        if len(bars_1h) < 40 or len(bars_4h) < 15:
-            print(f"Data koin {SYMBOL} tidak mencukupi.")
-            return
-
-        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
         df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
+        df_1d = pd.DataFrame(bars_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
 
-        curr_idx = -2
-        c = df_1h.iloc[curr_idx]
-        harga_sekarang = float(c['close'] * usd_idr)
+        # Harga saat ini (Update realtime dari candle terakhir)
+        harga_sekarang = float(df_4h['close'].iloc[-1] * usd_idr)
 
-        # --- INDIKATOR TEKNIKAL 1H ---
-        df_1h['ema9'] = df_1h['close'].ewm(span=9, adjust=False).mean()
-        df_1h['ema21'] = df_1h['close'].ewm(span=21, adjust=False).mean()
-        
-        # ATR (Volatilitas)
-        tr0 = df_1h['high'] - df_1h['low']
-        tr1 = (df_1h['high'] - df_1h['close'].shift(1)).abs()
-        tr2 = (df_1h['low']  - df_1h['close'].shift(1)).abs()
-        df_1h['tr']  = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1)
-        df_1h['atr'] = df_1h['tr'].rolling(window=14).mean()
-        
-        # RSI 14 (Momentum)
-        delta = df_1h['close'].diff()
+        # --- RUMUS PIVOT POINTS KLASIK (Dari Candle 1D Kemarin) ---
+        curr_1d = -2 
+        high_1d = df_1d['high'].iloc[curr_1d]
+        low_1d = df_1d['low'].iloc[curr_1d]
+        close_1d = df_1d['close'].iloc[curr_1d]
+
+        pivot = (high_1d + low_1d + close_1d) / 3
+        r1 = (2 * pivot) - low_1d
+        r2 = pivot + (high_1d - low_1d)
+        s1 = (2 * pivot) - high_1d
+        s2 = pivot - (high_1d - low_1d)
+
+        # Konversi level ke IDR
+        s1_idr, s2_idr = float(s1 * usd_idr), float(s2 * usd_idr)
+        r1_idr, r2_idr = float(r1 * usd_idr), float(r2 * usd_idr)
+
+        # --- INDIKATOR TREN (EMA 9 & 21) ---
+        df_4h['ema9'] = df_4h['close'].ewm(span=9, adjust=False).mean()
+        df_4h['ema21'] = df_4h['close'].ewm(span=21, adjust=False).mean()
+        df_1d['ema9'] = df_1d['close'].ewm(span=9, adjust=False).mean()
+        df_1d['ema21'] = df_1d['close'].ewm(span=21, adjust=False).mean()
+
+        is_bullish_4h = df_4h['ema9'].iloc[-1] > df_4h['ema21'].iloc[-1]
+        is_bullish_1d = df_1d['ema9'].iloc[-1] > df_1d['ema21'].iloc[-1]
+
+        tren_4h_teks = "NAIK 🟢" if is_bullish_4h else "TURUN 🔴"
+        tren_1d_teks = "NAIK 🟢" if is_bullish_1d else "TURUN 🔴"
+
+        # --- RSI 4H ---
+        delta = df_4h['close'].diff()
         up = delta.clip(lower=0)
         down = -1 * delta.clip(upper=0)
         ema_up = up.ewm(com=13, adjust=False).mean()
         ema_down = down.ewm(com=13, adjust=False).mean()
         rs = ema_up / ema_down
-        df_1h['rsi'] = 100 - (100 / (1 + rs))
+        df_4h['rsi'] = 100 - (100 / (1 + rs))
+        rsi_4h = df_4h['rsi'].iloc[-1]
 
-        # Variabel Nilai Indikator
-        atr_idr = float(df_1h['atr'].iloc[curr_idx] * usd_idr)
-        rsi_now = df_1h['rsi'].iloc[curr_idx]
-        ema21_idr = float(df_1h['ema21'].iloc[curr_idx] * usd_idr)
-
-        # --- LEVEL KUNCI 4H ---
-        swing_low = float(df_4h['low'].iloc[-15:-1].min()) * usd_idr
-        swing_high = float(df_4h['high'].iloc[-15:-1].max()) * usd_idr
-
-        # --- LOGIKA SKENARIO & STATUS ---
-        is_bullish = df_1h['ema9'].iloc[curr_idx] > df_1h['ema21'].iloc[curr_idx]
-        
-        # Status Momentum RSI
-        if rsi_now >= 70:
-            status_rsi = f"Overbought (RSI {rsi_now:.0f}) - Rawan Longsor"
-        elif rsi_now <= 30:
-            status_rsi = f"Oversold (RSI {rsi_now:.0f}) - Potensi Mantul"
+        if rsi_4h >= 70:
+            status_rsi = f"Kekenyangan/Ketinggian ({rsi_4h:.0f}) - Rawan Turun"
+        elif rsi_4h <= 30:
+            status_rsi = f"Kebanting/Kemurahan ({rsi_4h:.0f}) - Potensi Mantul"
         else:
-            status_rsi = f"Normal (RSI {rsi_now:.0f})"
+            status_rsi = f"Wajar/Normal ({rsi_4h:.0f})"
 
-        # Skenario Trading
-        if is_bullish:
-            tren_teks = "BULLISH 🟢"
-            rekomendasi = "Buy on Dip / Hold"
-            area_beli = f"Rp {ema21_idr:,.0f} - Rp {harga_sekarang:,.0f}"
-            target_tp = f"Rp {swing_high:,.0f}"
-            batas_sl  = f"Rp {ema21_idr - (1.5 * atr_idr):,.0f}"
-        else:
-            tren_teks = "BEARISH 🔴"
-            rekomendasi = "Wait & See / Serok Bawah"
-            area_beli = f"Kisaran Rp {swing_low:,.0f}"
-            target_tp = f"Rebound ke Rp {ema21_idr:,.0f}"
-            batas_sl  = f"Rp {swing_low - (1.0 * atr_idr):,.0f}"
+        # --- LOGIKA BAHASA SIMPEL (SMC & TECH) ---
+        if is_bullish_1d and is_bullish_4h:
+            smc_kondisi = "Tren besar & kecil kompak NAIK. Bandar lagi dorong harga ke atas."
+            smc_rekomendasi = "Sabar, tunggu harga agak diskon dikit turun dulu baru ikutan Beli."
+            tech_kondisi = "Kondisi pasar lagi bagus dan stabil (Uptrend kuat)."
+            tech_rekomendasi = "Aman buat Beli. Kalau tembus Target R1, potensi lanjut naik tinggi."
+            
+        elif is_bullish_1d and not is_bullish_4h:
+            smc_kondisi = "Tren besar masih NAIK, tapi jangka pendek lagi TURUN buat cari tenaga baru."
+            smc_rekomendasi = "Jangan buru-buru! Tunggu ada tanda-tanda harga berhenti turun dan mulai mantul."
+            tech_kondisi = "Harga lagi koreksi sehat (turun sementara uji ketahanan)."
+            tech_rekomendasi = "Momen pas buat cicil Beli bertahap dekat area Support (S1 / S2)."
+            
+        elif not is_bullish_1d and not is_bullish_4h:
+            smc_kondisi = "Pasar lagi lesu/rusak. Bandar masih cenderung jualan."
+            smc_rekomendasi = "Jangan coba-cabal melawan arus. Tahan diri dulu dari posisi Beli."
+            tech_kondisi = "Tren TURUN dominan. Tekanan jual masih lumayan tinggi."
+            tech_rekomendasi = "Wait & See (Nonton dulu). Hanya spekulasi beli kalau harga sudah murah banget."
+            
+        else: # 1D Bearish, 4H Bullish
+            smc_kondisi = "Harga naik cuma buat 'napas' sebentar sebelum potensi lanjut turun lagi."
+            smc_rekomendasi = "Waspada Jebakan Naik (Bull Trap)! Jangan tergiur beli di pucuk."
+            tech_kondisi = "Pantulan harga sementara (Dead Cat Bounce) di tengah tren turun besar."
+            tech_rekomendasi = "Kalau punya barang, manfaatkan kenaikan ini buat Take Profit / Jualan."
 
         # --- FORMAT PESAN TELEGRAM ---
         bot = Bot(token=TOKEN)
         msg = (
             f"```text\n"
-            f"🔍 [ANALISA ADVANCED] — {PAIR_NAME}\n"
+            f"🔍 [ANALISA PASAR] — {PAIR_NAME}\n"
             f"----------------------------------\n"
             f"• Harga       : Rp {harga_sekarang:,.0f}\n"
-            f"• Tren (1H)   : {tren_teks}\n"
-            f"• Momentum    : {status_rsi}\n\n"
-            f"📋 SKENARIO TRADING SPOT\n"
-            f"• Aksi        : {rekomendasi}\n"
-            f"• Area Beli   : {area_beli}\n"
-            f"• Take Profit : {target_tp}\n"
-            f"• Cut Loss    : {batas_sl}\n"
+            f"• Kondisi RSI : {status_rsi}\n"
+            f"• Tren (4H)   : {tren_4h_teks}\n"
+            f"                S1 : Rp {s1_idr:,.0f}\n"
+            f"                S2 : Rp {s2_idr:,.0f}\n"
+            f"• Tren (1D)   : {tren_1d_teks}\n"
+            f"                R1 : Rp {r1_idr:,.0f}\n"
+            f"                R2 : Rp {r2_idr:,.0f}\n"
             f"----------------------------------\n"
-            f"Status: Selesai (On-Demand)\n"
+            f"📋 PERSPEKTIF BANDAR (SMC)\n"
+            f"• Kondisi     : {smc_kondisi}\n"
+            f"• Rekomendasi : {smc_rekomendasi}\n"
+            f"----------------------------------\n"
+            f"📋 PERSPEKTIF TEKNIKAL (TECH)\n"
+            f"• Kondisi     : {tech_kondisi}\n"
+            f"• Rekomendasi : {tech_rekomendasi}\n"
             f"```"
         )
         
-        import asyncio
         async def send():
             await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
         
@@ -141,4 +160,4 @@ def run_advanced_analysis():
         print(f"Error saat analisa {SYMBOL}: {e}")
 
 if __name__ == '__main__':
-    run_advanced_analysis()
+    run_analysis()
