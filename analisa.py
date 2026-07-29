@@ -1,7 +1,7 @@
 """
 ========================================================
-    KRIPTO BOT — Analisa Simpel, Dinamis & Presisi Layout
-    Fungsi  : Pemisahan Analisis Berdasarkan Timeframe (4H vs 1D)
+    KRIPTO BOT — Analisa Simpel, Dinamis & Presisi Layout (v5.0 Hybrid SMC)
+    Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, & RRR
 ========================================================
 """
 
@@ -14,7 +14,7 @@ import asyncio
 import textwrap
 
 # --- KONFIGURASI ---
-TOKEN  = os.getenv("TELEGRAM_TOKEN")
+TOKEN   = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # Menangkap input simbol dari GitHub Actions (default ke BTC/USDT)
@@ -38,8 +38,45 @@ def rapihkan_teks(label: str, teks: str, width: int = 35) -> str:
     indent_spasi = " " * len(label)
     return textwrap.fill(teks, width=width, initial_indent=label, subsequent_indent=indent_spasi)
 
+def hitung_skor_smc(choch: bool, bos: bool, mitigation: bool, rrr: float, volume_spike: bool):
+    """Menghitung Skor Setup SMC kuantitatif (0-100)"""
+    score = 0
+    breakdown = []
+    
+    if choch:
+        score += 35
+        breakdown.append("• Konfirmasi CHoCH Valid (+35)")
+    else:
+        breakdown.append("• Tanpa CHoCH (+0)")
+        
+    if bos:
+        score += 25
+        breakdown.append("• Struktur BOS Terbentuk (+25)")
+    else:
+        breakdown.append("• Tanpa BOS (+0)")
+        
+    if mitigation:
+        score += 20
+        breakdown.append("• Area Mitigasi / Order Block Tersentuh (+20)")
+    else:
+        breakdown.append("• Belum Menyentuh OB (+0)")
+        
+    if volume_spike:
+        score += 10
+        breakdown.append("• Lonjakan Volume Konfirmasi (+10)")
+    else:
+        breakdown.append("• Volume Standar (+0)")
+        
+    if rrr >= 2.0:
+        score += 10
+        breakdown.append(f"• RRR Ideal ({rrr:.2f} >= 2.0) (+10)")
+    else:
+        breakdown.append(f"• RRR Cukup ({rrr:.2f} < 2.0) (+0)")
+        
+    return min(score, 100), breakdown
+
 def run_analysis():
-    print(f"DEBUG: Memulai analisa manual untuk {SYMBOL}...")
+    print(f"DEBUG: Memulai analisa hybrid SMC untuk {SYMBOL}...")
     exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
     
     try:
@@ -51,45 +88,42 @@ def run_analysis():
     usd_idr = get_usd_idr()
 
     try:
-        # Menarik data 4H dan 1D
+        # Menarik data 1H, 4H, dan 1D
+        bars_1h = exchange.fetch_ohlcv(SYMBOL, timeframe='1h', limit=50)
         bars_4h = exchange.fetch_ohlcv(SYMBOL, timeframe='4h', limit=50)
         bars_1d = exchange.fetch_ohlcv(SYMBOL, timeframe='1d', limit=30)
 
+        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
         df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
         df_1d = pd.DataFrame(bars_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
 
-        # Harga saat ini (Update realtime dari candle terakhir)
+        # Harga saat ini (Update realtime)
         harga_sekarang = float(df_4h['close'].iloc[-1] * usd_idr)
 
-        # --- 1. PIVOT POINTS KHUSUS 4H ---
+        # --- HITUNG ATR 1H UNTUK BUFFER SL/TP DINAMIS ---
+        df_1h['atr'] = (df_1h['high'] - df_1h['low']).rolling(14).mean()
+        df_1h['avg_vol'] = df_1h['volume'].rolling(20).mean().shift(1)
+        
+        curr_1h = df_1h.iloc[-2]
+        atr_idr = float(curr_1h['atr'] * usd_idr)
+
+        # --- PIVOT POINTS 4H ---
         curr_4h = -2
-        high_4h = df_4h['high'].iloc[curr_4h]
-        low_4h = df_4h['low'].iloc[curr_4h]
-        close_4h = df_4h['close'].iloc[curr_4h]
-
+        high_4h, low_4h, close_4h = df_4h['high'].iloc[curr_4h], df_4h['low'].iloc[curr_4h], df_4h['close'].iloc[curr_4h]
         pivot_4h = (high_4h + low_4h + close_4h) / 3
-        r1_4h = (2 * pivot_4h) - low_4h
-        r2_4h = pivot_4h + (high_4h - low_4h)
-        s1_4h = (2 * pivot_4h) - high_4h
-        s2_4h = pivot_4h - (high_4h - low_4h)
+        r1_4h_idr = float(((2 * pivot_4h) - low_4h) * usd_idr)
+        r2_4h_idr = float((pivot_4h + (high_4h - low_4h)) * usd_idr)
+        s1_4h_idr = float(((2 * pivot_4h) - high_4h) * usd_idr)
+        s2_4h_idr = float((pivot_4h - (high_4h - low_4h)) * usd_idr)
 
-        s1_4h_idr, s2_4h_idr = float(s1_4h * usd_idr), float(s2_4h * usd_idr)
-        r1_4h_idr, r2_4h_idr = float(r1_4h * usd_idr), float(r2_4h * usd_idr)
-
-        # --- 2. PIVOT POINTS KHUSUS 1D ---
+        # --- PIVOT POINTS 1D ---
         curr_1d = -2 
-        high_1d = df_1d['high'].iloc[curr_1d]
-        low_1d = df_1d['low'].iloc[curr_1d]
-        close_1d = df_1d['close'].iloc[curr_1d]
-
+        high_1d, low_1d, close_1d = df_1d['high'].iloc[curr_1d], df_1d['low'].iloc[curr_1d], df_1d['close'].iloc[curr_1d]
         pivot_1d = (high_1d + low_1d + close_1d) / 3
-        r1_1d = (2 * pivot_1d) - low_1d
-        r2_1d = pivot_1d + (high_1d - low_1d)
-        s1_1d = (2 * pivot_1d) - high_1d
-        s2_1d = pivot_1d - (high_1d - low_1d)
-
-        s1_1d_idr, s2_1d_idr = float(s1_1d * usd_idr), float(s2_1d * usd_idr)
-        r1_1d_idr, r2_1d_idr = float(r1_1d * usd_idr), float(r2_1d * usd_idr)
+        r1_1d_idr = float(((2 * pivot_1d) - low_1d) * usd_idr)
+        r2_1d_idr = float((pivot_1d + (high_1d - low_1d)) * usd_idr)
+        s1_1d_idr = float(((2 * pivot_1d) - high_1d) * usd_idr)
+        s2_1d_idr = float((pivot_1d - (high_1d - low_1d)) * usd_idr)
 
         # --- INDIKATOR TREN (EMA 9 & 21) ---
         df_4h['ema9'] = df_4h['close'].ewm(span=9, adjust=False).mean()
@@ -103,16 +137,29 @@ def run_analysis():
         tren_4h_teks = "NAIK 🟢" if is_bullish_4h else "TURUN 🔴"
         tren_1d_teks = "NAIK 🟢" if is_bullish_1d else "TURUN 🔴"
 
-        # --- LOGIKA TAMPILAN PRESISI (TITIK DUA SEJAJAR DIPASANG DI KARAKTER KE-15) ---
+        # Tampilan Level Presisi
         if is_bullish_4h:
             level_4h_teks = f"  Atap 1      : Rp {r1_4h_idr:,.0f}\n  Atap 2      : Rp {r2_4h_idr:,.0f}"
+            sl_4h_idr = s1_4h_idr - (0.5 * atr_idr)
+            tp_4h_idr = r2_4h_idr
         else:
             level_4h_teks = f"  Lantai 1    : Rp {s1_4h_idr:,.0f}\n  Lantai 2    : Rp {s2_4h_idr:,.0f}"
+            sl_4h_idr = s2_4h_idr - (0.5 * atr_idr)
+            tp_4h_idr = r1_4h_idr
 
         if is_bullish_1d:
             level_1d_teks = f"  Atap 1      : Rp {r1_1d_idr:,.0f}\n  Atap 2      : Rp {r2_1d_idr:,.0f}"
+            sl_1d_idr = s1_1d_idr - (1.0 * atr_idr)
+            tp_1d_idr = r2_1d_idr
         else:
             level_1d_teks = f"  Lantai 1    : Rp {s1_1d_idr:,.0f}\n  Lantai 2    : Rp {s2_1d_idr:,.0f}"
+            sl_1d_idr = s2_1d_idr - (1.0 * atr_idr)
+            tp_1d_idr = r1_1d_idr
+
+        # --- HITUNG ETIMASI RRR ---
+        risk_4h = abs(harga_sekarang - sl_4h_idr)
+        reward_4h = abs(tp_4h_idr - harga_sekarang)
+        rrr_4h = (reward_4h / risk_4h) if risk_4h > 0 else 0.0
 
         # --- RSI 4H ---
         delta = df_4h['close'].diff()
@@ -131,34 +178,46 @@ def run_analysis():
         else:
             status_rsi = f"Wajar/Normal ({rsi_4h:.0f})"
 
-        # --- LOGIKA INDEPENDEN SMC 4H (JANGKA PENDEK / SCALPING) ---
+        # --- PENDETEKSI LOGIKA KUANTITATIF SMC ---
+        choch = bool(curr_1h['close'] > curr_1h['open'] and curr_1h['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.5))
+        bos = bool(curr_1h['close'] > df_1h['high'].iloc[-5:-2].max())
+        mitigation = bool((df_4h['low'].iloc[-1] * usd_idr) <= (s1_4h_idr * 1.005))
+        vol_spike = bool(curr_1h['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.8))
+
+        skor_smc, breakdown_skor = hitung_skor_smc(choch, bos, mitigation, rrr_4h, vol_spike)
+
+        label_skor = "🔥 SANGAT POTENSIAL" if skor_smc >= 80 else ("🎯 POTENSI HIGH" if skor_smc >= 60 else "⚠️ STANDAR/NEUTRAL")
+
+        # --- LOGIKA TEKS SMC 4H ---
         if is_bullish_4h:
-            smc_4h_k = "Tren 4H lagi NAIK. Bandar jangka pendek dorong harga."
-            smc_4h_r = "Aman buat Beli saat koreksi tipis di area Lantai 1 4H."
-            smc_4h_h = f"Pertimbangkan TP di Atap 1 4H (Rp {r1_4h_idr:,.0f})."
+            smc_4h_k = f"Tren 4H NAIK. Skor Setup ({skor_smc}/100) mengonfirmasi dorongan."
+            smc_4h_r = "Beli bertahap saat koreksi tipis di area Lantai 1 4H."
+            smc_4h_h = f"SL : Rp {sl_4h_idr:,.0f}\nTP : Rp {tp_4h_idr:,.0f} (RRR 1:{rrr_4h:.2f})"
         else:
-            smc_4h_k = "Tren 4H lagi TURUN. Tekanan jual jangka pendek masih terasa."
-            smc_4h_r = "Wait & See dulu. Tunggu pantulan di dekat Lantai 1 4H."
-            smc_4h_h = f"Pertimbangkan SL jika harga jebol Lantai 2 4H (Rp {s2_4h_idr:,.0f})."
+            smc_4h_k = f"Tren 4H TURUN. Tekanan jual terasa, Skor Setup ({skor_smc}/100)."
+            smc_4h_r = "Wait & See dulu. Tunggu pantulan aman dekat Lantai 1 4H."
+            smc_4h_h = f"SL : Rp {sl_4h_idr:,.0f}\nTP : Rp {tp_4h_idr:,.0f} (RRR 1:{rrr_4h:.2f})"
 
-        # --- LOGIKA INDEPENDEN SMC 1D (JANGKA PANJANG / SWING) ---
+        # --- LOGIKA TEKS SMC 1D ---
         if is_bullish_1d:
-            smc_1d_k = "Tren besar 1D NAIK kuat. Bandar makro menjaga harga."
-            smc_1d_r = "Bagus untuk posisi Swing/Hold. Struktur makro sangat sehat."
-            smc_1d_h = f"Pertimbangkan TP utama di Atap 2 1D (Rp {r2_1d_idr:,.0f})."
+            smc_1d_k = "Tren makro 1D NAIK kuat. Bandar makro menjaga harga."
+            smc_1d_r = "Bagus untuk posisi Swing. Struktur makro sangat sehat."
+            smc_1d_h = f"SL : Rp {sl_1d_idr:,.0f}\nTP : Rp {tp_1d_idr:,.0f}"
         else:
-            smc_1d_k = "Tren besar 1D lagi TURUN. Bandar makro masih cenderung distribusi/jual."
-            smc_1d_r = "Hindari hold posisi terlalu lama. Utamakan quick trade saja."
-            smc_1d_h = f"Pertimbangkan SL jika harga jebol Lantai 2 1D (Rp {s2_1d_idr:,.0f})."
+            smc_1d_k = "Tren makro 1D TURUN. Bandar makro cenderung distribusi/jual."
+            smc_1d_r = "Hindari hold terlalu lama. Utamakan quick trade saja."
+            smc_1d_h = f"SL : Rp {sl_1d_idr:,.0f}\nTP : Rp {tp_1d_idr:,.0f}"
 
-        # --- FORMATTING TEKS PARAGRAF ---
+        # --- FORMATTING PARAGRAF ---
         smc_4h_k_fmt = rapihkan_teks("• Kondisi  : ", smc_4h_k)
         smc_4h_r_fmt = rapihkan_teks("• Rekom    : ", smc_4h_r)
-        smc_4h_h_fmt = rapihkan_teks("• Hold     : ", smc_4h_h)
+        smc_4h_h_fmt = rapihkan_teks("• Risk Mgt : ", smc_4h_h)
 
         smc_1d_k_fmt = rapihkan_teks("• Kondisi  : ", smc_1d_k)
         smc_1d_r_fmt = rapihkan_teks("• Rekom    : ", smc_1d_r)
-        smc_1d_h_fmt = rapihkan_teks("• Hold     : ", smc_1d_h)
+        smc_1d_h_fmt = rapihkan_teks("• Risk Mgt : ", smc_1d_h)
+
+        breakdown_str = "\n".join(breakdown_skor)
 
         # --- FORMAT PESAN TELEGRAM ---
         bot = Bot(token=TOKEN)
@@ -166,22 +225,28 @@ def run_analysis():
             f"```text\n"
             f"🔍 [ANALISA PASAR] — {PAIR_NAME}\n"
             f"----------------------------------\n"
-            f"• Harga       : Rp {harga_sekarang:,.0f}\n\n"
+            f"• Harga       : Rp {harga_sekarang:,.0f}\n"
             f"• Kondisi RSI : {status_rsi}\n"
+            f"• Skor Setup  : {skor_smc}/100 ({label_skor})\n"
+            f"• Est. RRR    : 1 : {rrr_4h:.2f}\n"
+            f"----------------------------------\n"
             f"• Tren (4H)   : {tren_4h_teks}\n"
             f"{level_4h_teks}\n"
             f"• Tren (1D)   : {tren_1d_teks}\n"
             f"{level_1d_teks}\n"
             f"----------------------------------\n"
-            f"📋 PERSPEKTIF SMC 4H\n"
+            f"📋 PERSPEKTIF SMC 4H (JANGKA PENDEK)\n"
             f"{smc_4h_k_fmt}\n"
             f"{smc_4h_r_fmt}\n"
             f"{smc_4h_h_fmt}\n"
             f"----------------------------------\n"
-            f"📋 PERSPEKTIF SMC 1D\n"
+            f"📋 PERSPEKTIF SMC 1D (JANGKA PANJANG)\n"
             f"{smc_1d_k_fmt}\n"
             f"{smc_1d_r_fmt}\n"
             f"{smc_1d_h_fmt}\n"
+            f"----------------------------------\n"
+            f"📋 RINCIAN SKOR SETUP (SMC)\n"
+            f"{breakdown_str}\n"
             f"```"
         )
         
