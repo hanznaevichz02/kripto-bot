@@ -6,7 +6,6 @@ on:
       symbol:
         description: 'Masukkan Simbol Koin (Contoh: BTC, ETH, SOL, SUI)'
         required: true
-        default: 'BTC/USDT'
 
 jobs:
   manual-analysis:
