@@ -38,20 +38,22 @@ def rapihkan_teks(label: str, teks: str, width: int = 35) -> str:
     indent_spasi = " " * len(label)
     return textwrap.fill(teks, width=width, initial_indent=label, subsequent_indent=indent_spasi)
 
-def cek_fvg(df):
-    """Mendeteksi Fair Value Gap (FVG) dari 3 candle terakhir"""
-    fvg_bullish = False
-    fvg_bearish = False
+def cek_fvg(df, usd_idr):
+    """Mendeteksi Fair Value Gap (FVG) beserta arah dan rentang harganya dalam Rupiah"""
     for i in range(len(df) - 1, 2, -1):
         # Bullish FVG: Low candle saat ini > High candle 2 periode sebelumnya
         if df['low'].iloc[i] > df['high'].iloc[i-2]:
-            fvg_bullish = True
-            break
+            p_bawah = float(df['high'].iloc[i-2] * usd_idr)
+            p_atas = float(df['low'].iloc[i] * usd_idr)
+            return "Bullish", p_bawah, p_atas
+            
         # Bearish FVG: High candle saat ini < Low candle 2 periode sebelumnya
         if df['high'].iloc[i] < df['low'].iloc[i-2]:
-            fvg_bearish = True
-            break
-    return fvg_bullish, fvg_bearish
+            p_bawah = float(df['high'].iloc[i] * usd_idr)
+            p_atas = float(df['low'].iloc[i-2] * usd_idr)
+            return "Bearish", p_bawah, p_atas
+            
+    return None, 0, 0
 
 def hitung_skor_smc(choch: bool, bos: bool, mitigation: bool, fvg: bool, rrr: float, volume_spike: bool):
     """Menghitung Skor Setup SMC kuantitatif (0-100) dengan tambahan FVG"""
@@ -227,9 +229,16 @@ def run_analysis():
         mitigation = bool((df_4h['low'].iloc[-1] * usd_idr) <= (s1_4h_idr * 1.005))
         vol_spike = bool(curr_1h['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.8))
         
-        fvg_bull, fvg_bear = cek_fvg(df_1h)
-        fvg_active = fvg_bull if is_bullish_4h else fvg_bear
-        fvg_teks_status = "Aktif (Gap Valid) ✅" if fvg_active else "Tidak Ada / Tertutup ❌"
+        fvg_type, fvg_min, fvg_max = cek_fvg(df_1h, usd_idr)
+        if fvg_type == "Bullish":
+            fvg_active = True
+            fvg_teks_status = f"Bullish 🟢 (Rp {fvg_min:,.0f} - Rp {fvg_max:,.0f})"
+        elif fvg_type == "Bearish":
+            fvg_active = True
+            fvg_teks_status = f"Bearish 🔴 (Rp {fvg_min:,.0f} - Rp {fvg_max:,.0f})"
+        else:
+            fvg_active = False
+            fvg_teks_status = "Tidak Ada / Tertutup ❌"
 
         skor_smc, breakdown_skor = hitung_skor_smc(choch, bos, mitigation, fvg_active, rrr_4h, vol_spike)
         label_skor = "🔥 HIGH" if skor_smc >= 80 else ("🎯 POTENSIAL" if skor_smc >= 60 else "⚠️ STANDAR")
