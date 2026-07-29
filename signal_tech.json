@@ -1,11 +1,11 @@
 {
-    "timestamp": "2026-07-29 19:06:03",
-    "symbol": "NONE",
-    "signal_type": null,
-    "current_price": 0.0,
-    "high_price": 0.0,
-    "low_price": 0.0,
-    "sl_price": 0.0,
-    "tp_price": 0.0,
+    "timestamp": "2026-07-29 21:11:11",
+    "symbol": null,
+    "signal_type": "NEUTRAL",
+    "current_price": 0,
+    "high_price": 0,
+    "low_price": 0,
+    "sl_price": 0,
+    "tp_price": 0,
     "rrr": 0.0
 }

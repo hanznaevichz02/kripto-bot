@@ -1,11 +1,12 @@
 {
-    "timestamp": "2026-07-29 19:05:53",
-    "symbol": "ZEC/USDT",
-    "signal_type": "AKUMULASI",
-    "current_price": 8284371.412,
-    "high_price": 8301397.5200000005,
-    "low_price": 8233527.062,
-    "sl_price": 8077037.6659285715,
-    "tp_price": 8622463.842,
-    "rrr": 1.63
+    "timestamp": "2026-07-29 21:10:57",
+    "symbol": "LINK/USDT",
+    "signal_type": "BULL_SWEEP",
+    "score": 75.0,
+    "current_price": 149795.9944,
+    "high_price": 150359.144,
+    "low_price": 149760.0104,
+    "sl_price": 146808.2942857143,
+    "tp_price": 153138.908,
+    "rrr": 1.12
 }
