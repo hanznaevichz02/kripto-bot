@@ -1,12 +1,12 @@
 {
-    "timestamp": "2026-07-29 23:05:46",
-    "symbol": "NONE",
-    "signal_type": null,
-    "score": 0.0,
-    "current_price": 0.0,
-    "high_price": 0.0,
-    "low_price": 0.0,
-    "sl_price": 0.0,
-    "tp_price": 0.0,
-    "rrr": 0.0
+    "timestamp": "2026-07-30 00:05:39",
+    "symbol": "ONDO/USDT",
+    "signal_type": "AKUMULASI",
+    "score": 95.0,
+    "current_price": 7081.29136,
+    "high_price": 7104.1412,
+    "low_price": 7078.9524,
+    "sl_price": 6936.417205714286,
+    "tp_price": 7452.2864,
+    "rrr": 2.56
 }
