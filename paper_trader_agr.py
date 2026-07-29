@@ -3,7 +3,7 @@
     KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading)
     Mode    : MULTI-ASSET SCANNER + RANKING SYSTEM (16 Koin)
     Aturan  : STRICT 1 OPEN POSITION ONLY + JSON SIGNAL OUTPUT
-    Versi   : 4.3.0 (Integrasi signal_agr.json & Clean Telegram)
+    Versi   : 4.3.0 (Integrasi signal_agr.json & Clean Telegram HTML)
 ========================================================
 """
 
@@ -27,7 +27,7 @@ MIN_SCORE_ENTRY     = 70     # Batas minimal skor kelayakan (0 - 100)
 INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_hybrid.json"
 SIGNAL_FILE         = "signal_agr.json"
-FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 (1.3%)
+FEE_TAX_RATE        = 0.013  # Fee + Pajak PMK 68 dipotong saat Sell/Exit (1.3%)
 
 ASSET_LIST = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'SUI/USDT',
@@ -132,17 +132,18 @@ def analisa_koin_hybrid(exchange, symbol, usd_idr):
         df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
         df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
 
-        curr_idx = -2
+        curr_idx = -2 # Candle tertutup (untuk kalkulasi indikator agar bebas repainting)
         prev_idx = -3
         c = df_1h.iloc[curr_idx]
         p = df_1h.iloc[prev_idx]
-        latest_c = df_1h.iloc[-1]
+        
+        # PERBAIKAN BUG A & B: Hargai eksekusi & cek TP/SL wajib pakai candle berjalan saat ini (live)
+        latest_c = df_1h.iloc[-1] 
+        harga_idr  = float(latest_c['close'] * usd_idr)
+        high_idr   = float(latest_c['high'] * usd_idr)
+        low_idr    = float(latest_c['low'] * usd_idr)
 
-        harga_idr  = float(c['close'] * usd_idr)
-        high_idr   = float(max(c['high'], latest_c['high']) * usd_idr)
-        low_idr    = float(min(c['low'], latest_c['low']) * usd_idr)
-
-        # ATR 1H
+        # ATR 1H (berdasarkan candle yang sudah tertutup)
         tr0 = df_1h['high'] - df_1h['low']
         tr1 = (df_1h['high'] - df_1h['close'].shift(1)).abs()
         tr2 = (df_1h['low']  - df_1h['close'].shift(1)).abs()
@@ -247,78 +248,79 @@ async def main():
     pos     = state.get("active_position")
 
     # =========================================================
-    # 1. EKSKLUSIF EVALUASI EXIT (JIKA ADA POSISI OPEN)
+    # 1. EVALUASI EXIT (JIKA ADA POSISI OPEN)
     # =========================================================
     if pos:
         symbol = pos["symbol"]
         pair_name = pos["pair_name"]
         data = analisa_koin_hybrid(exchange, symbol, usd_idr)
-        if not data: return
+        
+        if data:
+            entry_p, amount, sl, tp = pos["entry_price_idr"], pos["amount"], pos["sl"], pos["tp"]
+            is_win = data["high_idr"] >= tp
+            is_loss = data["low_idr"] <= sl
+            is_emerg_exit = data["is_emergency_exit"]
 
-        entry_p, amount, sl, tp = pos["entry_price_idr"], pos["amount"], pos["sl"], pos["tp"]
-        is_win = data["high_idr"] >= tp
-        is_loss = data["low_idr"] <= sl
-        is_emerg_exit = data["is_emergency_exit"]
+            if is_win or is_loss or is_emerg_exit:
+                if is_loss:
+                    exit_reason = "STOP LOSS (SWING 4H) 🛑"
+                    exit_price  = sl
+                elif is_win:
+                    exit_reason = "TAKE PROFIT (SWING 4H) 🎯"
+                    exit_price  = tp
+                else:
+                    exit_reason = f"EMERGENCY EXIT ({data['emerg_reason']}) ⚠️"
+                    exit_price  = data["harga_idr"]
 
-        if is_win or is_loss or is_emerg_exit:
-            if is_loss:
-                exit_reason = "STOP LOSS (SWING 4H) 🛑"
-                exit_price  = sl
-            elif is_win:
-                exit_reason = "TAKE PROFIT (SWING 4H) 🎯"
-                exit_price  = tp
+                # Pemotongan fee + pajak (1.3%) tetap dilakukan penuh saat EXIT
+                gross = exit_price * amount
+                net   = gross - (gross * FEE_TAX_RATE)
+                modal = entry_p * amount
+                pnl_val = net - modal
+                pnl_pct = (pnl_val / modal) * 100
+                status  = "WIN" if pnl_val > 0 else "LOSS"
+
+                state["cash_idr"] += net
+                state["history"].append({
+                    "pair": pair_name, 
+                    "pnl_pct": round(pnl_pct, 2), 
+                    "pnl_idr": round(pnl_val, 2), 
+                    "status": status,
+                    "entry_time": pos["entry_time"], 
+                    "exit_time": now_wib.strftime('%Y-%m-%d %H:%M:%S')
+                })
+                state["stats"]["total_trades"] += 1
+                if status == "WIN": state["stats"]["wins"] += 1
+                else: state["stats"]["losses"] += 1
+                state["stats"]["total_pnl_idr"] += round(pnl_val, 2)
+                state["active_position"] = None
+                save_state(state)
+
+                stats = state["stats"]
+                wr = (stats["wins"] / stats["total_trades"]) * 100 if stats["total_trades"] > 0 else 0
+                
+                # Notif Telegram KHUSUS EXIT (Format HTML)
+                msg = (
+                    f"🧪 <b>[PAPER TRADING - HYBRID EXIT]</b> {pair_name}\n"
+                    f"──────────────────────────────\n"
+                    f"Alasan    : {exit_reason}\n"
+                    f"Harga In  : Rp {entry_p:,.0f}\n"
+                    f"Harga Out : Rp {exit_price:,.0f}\n"
+                    f"P/L       : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n\n"
+                    f"📊 <b>REKAP TOTAL HYBRID</b>:\n"
+                    f"• Total Trade : {stats['total_trades']}x\n"
+                    f"• Win / Loss  : {stats['wins']} Win / {stats['losses']} Loss (WR: {wr:.1f}%)\n"
+                    f"• Total P/L   : Rp {stats['total_pnl_idr']:+,.0f}\n"
+                    f"• Sisa Kas    : Rp {state['cash_idr']:,.0f}"
+                )
+                await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='HTML')
+                print(f"    🧪 Notif Exit Terkirim untuk {pair_name}")
             else:
-                exit_reason = f"EMERGENCY EXIT ({data['emerg_reason']}) ⚠️"
-                exit_price  = data["harga_idr"]
-
-            gross = exit_price * amount
-            net   = gross - (gross * FEE_TAX_RATE)
-            modal = entry_p * amount
-            pnl_val = net - modal
-            pnl_pct = (pnl_val / modal) * 100
-            status  = "WIN" if pnl_val > 0 else "LOSS"
-
-            state["cash_idr"] += net
-            state["history"].append({
-                "pair": pair_name, 
-                "pnl_pct": round(pnl_pct, 2), 
-                "pnl_idr": round(pnl_val, 2), 
-                "status": status,
-                "entry_time": pos["entry_time"], 
-                "exit_time": now_wib.strftime('%Y-%m-%d %H:%M:%S')
-            })
-            state["stats"]["total_trades"] += 1
-            if status == "WIN": state["stats"]["wins"] += 1
-            else: state["stats"]["losses"] += 1
-            state["stats"]["total_pnl_idr"] += round(pnl_val, 2)
-            state["active_position"] = None
-            save_state(state)
-
-            stats = state["stats"]
-            wr = (stats["wins"] / stats["total_trades"]) * 100 if stats["total_trades"] > 0 else 0
-            
-            # Notif Telegram KHUSUS EXIT
-            msg = (
-                f"🧪 *[PAPER TRADING - HYBRID EXIT]* {pair_name}\n"
-                f"──────────────────────────────\n"
-                f"Alasan    : {exit_reason}\n"
-                f"Harga In  : Rp {entry_p:,.0f}\n"
-                f"Harga Out : Rp {exit_price:,.0f}\n"
-                f"P/L       : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n\n"
-                f"📊 *REKAP TOTAL HYBRID*:\n"
-                f"• Total Trade : {stats['total_trades']}x\n"
-                f"• Win / Loss  : {stats['wins']} Win / {stats['losses']} Loss (WR: {wr:.1f}%)\n"
-                f"• Total P/L   : Rp {stats['total_pnl_idr']:+,.0f}\n"
-                f"• Sisa Kas    : Rp {state['cash_idr']:,.0f}"
-            )
-            await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
-            print(f"    🧪 Notif Exit Terkirim untuk {pair_name}")
-        else:
-            print(f"    — Hybrid: Posisi {pair_name} masih aktif (1 Open Position Lock).")
-        return
+                print(f"    — Hybrid: Posisi {pair_name} masih aktif (1 Open Position Lock).")
 
     # =========================================================
-    # 2. SCANNING, RANKING & PENYIMPANAN SIGNAL JSON (KAS KOSONG)
+    # 2. SCANNING, RANKING & PENYIMPANAN SIGNAL JSON
+    # PERBAIKAN BUG C: Selalu dijalankan agar signal_agr.json selalu ter-update
     # =========================================================
     candidates = []
     scanned_summary = []
@@ -333,7 +335,7 @@ async def main():
     # Urutkan seluruh hasil scan berdasarkan skor tertinggi
     scanned_summary.sort(key=lambda x: x["score"], reverse=True)
 
-    # Simpan ringkasan sinyal ke signal_agr.json (Tanpa spam ke Telegram)
+    # Simpan ringkasan sinyal ke signal_agr.json
     signal_payload = {
         "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
         "top_signals": scanned_summary[:3],
@@ -341,6 +343,11 @@ async def main():
     }
     save_signal(signal_payload)
     print("    — Hybrid Scanner: Berhasil memperbarui file signal_agr.json.")
+
+    # KUNCI POSISI: Jika ada posisi aktif, tidak boleh buka posisi baru
+    if state.get("active_position") is not None:
+        print("    — Hybrid Scanner: Kunci 1 Open Position Aktif. Mengabaikan eksekusi entry baru.")
+        return
 
     if not candidates:
         print("    — Hybrid Scanner: Tidak ada koin yang lolos kriteria minimum skor entry.")
@@ -352,7 +359,7 @@ async def main():
 
     available_cash = state["cash_idr"]
     if available_cash >= 100_000:
-        amount = available_cash / winner["harga_idr"]
+        amount = available_cash / winner["harga_idr"]  # Beli tanpa potong fee di awal
         state["active_position"] = {
             "symbol": winner["symbol"],
             "pair_name": winner["pair_name"],
@@ -367,20 +374,20 @@ async def main():
 
         rincian_skor = "\n".join(winner["breakdown"])
         
-        # Notif Telegram KHUSUS ENTRY
+        # Notif Telegram KHUSUS ENTRY (Format HTML)
         msg = (
-            f"🧪 *[PAPER TRADING - HYBRID ENTRY]* {winner['pair_name']}\n"
+            f"🧪 <b>[PAPER TRADING - HYBRID ENTRY]</b> {winner['pair_name']}\n"
             f"──────────────────────────────\n"
             f"Pemicu    : {winner['trigger_str']}\n"
-            f"📊 *SKOR HYBRID JUARA #1*: `{winner['score']}/100`\n"
-            f"*Rincian Skoring*:\n{rincian_skor}\n"
+            f"📊 <b>SKOR HYBRID JUARA #1</b>: <code>{winner['score']}/100</code>\n"
+            f"<b>Rincian Skoring</b>:\n{rincian_skor}\n"
             f"──────────────────────────────\n"
             f"Modal In  : Rp {available_cash:,.0f}\n"
             f"Harga In  : Rp {winner['harga_idr']:,.0f}\n"
             f"Target TP : Rp {winner['tp_price']:,.0f}\n"
             f"Batas SL  : Rp {winner['sl_price']:,.0f}"
         )
-        await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
+        await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='HTML')
         print(f"    🧪 Notif Entry Terkirim untuk Juara #1 ({winner['pair_name']})")
 
 if __name__ == '__main__':
