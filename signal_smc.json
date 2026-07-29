@@ -1,12 +1,12 @@
 {
-    "timestamp": "2026-07-30 04:05:43",
-    "symbol": "NONE",
-    "signal_type": null,
-    "score": 0.0,
-    "current_price": 0.0,
-    "high_price": 0.0,
-    "low_price": 0.0,
-    "sl_price": 0.0,
-    "tp_price": 0.0,
-    "rrr": 0.0
+    "timestamp": "2026-07-30 05:05:48",
+    "symbol": "AVAX/USDT",
+    "signal_type": "BULL_SWEEP",
+    "score": 90.0,
+    "current_price": 115331.18400000001,
+    "high_price": 115331.18400000001,
+    "low_price": 114989.22200000001,
+    "sl_price": 113033.22507142858,
+    "tp_price": 119452.726,
+    "rrr": 1.79
 }
