@@ -1,7 +1,7 @@
 """
 ========================================================
-    KRIPTO BOT — Analisa Simpel & Praktis
-    Fungsi  : Menganalisa 4H & 1D dengan Bahasa Awam
+    KRIPTO BOT — Analisa Simpel & Dinamis
+    Fungsi  : Menganalisa 4H & 1D dengan Level Dinamis
 ========================================================
 """
 
@@ -83,6 +83,17 @@ def run_analysis():
         tren_4h_teks = "NAIK 🟢" if is_bullish_4h else "TURUN 🔴"
         tren_1d_teks = "NAIK 🟢" if is_bullish_1d else "TURUN 🔴"
 
+        # --- LOGIKA DINAMIS TAMPILAN LANTAI / ATAP ---
+        if is_bullish_4h:
+            level_4h_teks = f"              Atap 1  : Rp {r1_idr:,.0f}\n              Atap 2  : Rp {r2_idr:,.0f}"
+        else:
+            level_4h_teks = f"              Lantai 1: Rp {s1_idr:,.0f}\n              Lantai 2: Rp {s2_idr:,.0f}"
+
+        if is_bullish_1d:
+            level_1d_teks = f"              Atap 1  : Rp {r1_idr:,.0f}\n              Atap 2  : Rp {r2_idr:,.0f}"
+        else:
+            level_1d_teks = f"              Lantai 1: Rp {s1_idr:,.0f}\n              Lantai 2: Rp {s2_idr:,.0f}"
+
         # --- RSI 4H ---
         delta = df_4h['close'].diff()
         up = delta.clip(lower=0)
@@ -105,25 +116,25 @@ def run_analysis():
             smc_kondisi = "Tren besar & kecil kompak NAIK. Bandar lagi dorong harga ke atas."
             smc_rekomendasi = "Sabar, tunggu harga agak diskon dikit turun dulu baru ikutan Beli."
             tech_kondisi = "Kondisi pasar lagi bagus dan stabil (Uptrend kuat)."
-            tech_rekomendasi = "Aman buat Beli. Kalau tembus Target R1, potensi lanjut naik tinggi."
+            tech_rekomendasi = "Aman buat Beli. Kalau tembus Atap 1, potensi lanjut naik tinggi."
             
         elif is_bullish_1d and not is_bullish_4h:
             smc_kondisi = "Tren besar masih NAIK, tapi jangka pendek lagi TURUN buat cari tenaga baru."
             smc_rekomendasi = "Jangan buru-buru! Tunggu ada tanda-tanda harga berhenti turun dan mulai mantul."
             tech_kondisi = "Harga lagi koreksi sehat (turun sementara uji ketahanan)."
-            tech_rekomendasi = "Momen pas buat cicil Beli bertahap dekat area Support (S1 / S2)."
+            tech_rekomendasi = "Momen pas buat cicil Beli bertahap dekat area Lantai 1 / Lantai 2."
             
         elif not is_bullish_1d and not is_bullish_4h:
             smc_kondisi = "Pasar lagi lesu/rusak. Bandar masih cenderung jualan."
-            smc_rekomendasi = "Jangan coba-cabal melawan arus. Tahan diri dulu dari posisi Beli."
+            smc_rekomendasi = "Jangan coba-coba melawan arus. Tahan diri dulu dari posisi Beli."
             tech_kondisi = "Tren TURUN dominan. Tekanan jual masih lumayan tinggi."
-            tech_rekomendasi = "Wait & See (Nonton dulu). Hanya spekulasi beli kalau harga sudah murah banget."
+            tech_rekomendasi = "Wait & See (Nonton dulu). Hanya spekulasi beli kalau harga sudah murah banget dekat Lantai 2."
             
         else: # 1D Bearish, 4H Bullish
             smc_kondisi = "Harga naik cuma buat 'napas' sebentar sebelum potensi lanjut turun lagi."
             smc_rekomendasi = "Waspada Jebakan Naik (Bull Trap)! Jangan tergiur beli di pucuk."
-            tech_kondisi = "Pantulan harga sementara (Dead Cat Bounce) di tengah tren turun besar."
-            tech_rekomendasi = "Kalau punya barang, manfaatkan kenaikan ini buat Take Profit / Jualan."
+            tech_kondisi = "Pantulan harga sementara di tengah tren turun besar."
+            tech_rekomendasi = "Kalau punya barang, manfaatkan kenaikan mendekati Atap 1 buat Take Profit / Jualan."
 
         # --- FORMAT PESAN TELEGRAM ---
         bot = Bot(token=TOKEN)
@@ -134,11 +145,9 @@ def run_analysis():
             f"• Harga       : Rp {harga_sekarang:,.0f}\n"
             f"• Kondisi RSI : {status_rsi}\n"
             f"• Tren (4H)   : {tren_4h_teks}\n"
-            f"                S1 : Rp {s1_idr:,.0f}\n"
-            f"                S2 : Rp {s2_idr:,.0f}\n"
+            f"{level_4h_teks}\n"
             f"• Tren (1D)   : {tren_1d_teks}\n"
-            f"                R1 : Rp {r1_idr:,.0f}\n"
-            f"                R2 : Rp {r2_idr:,.0f}\n"
+            f"{level_1d_teks}\n"
             f"----------------------------------\n"
             f"📋 PERSPEKTIF BANDAR (SMC)\n"
             f"• Kondisi     : {smc_kondisi}\n"
