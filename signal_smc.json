@@ -1,11 +1,11 @@
 {
-    "timestamp": "2026-07-29 18:05:40",
-    "symbol": "NONE",
-    "signal_type": null,
-    "current_price": 0.0,
-    "high_price": 0.0,
-    "low_price": 0.0,
-    "sl_price": 0.0,
-    "tp_price": 0.0,
-    "rrr": 0.0
+    "timestamp": "2026-07-29 19:05:53",
+    "symbol": "ZEC/USDT",
+    "signal_type": "AKUMULASI",
+    "current_price": 8284371.412,
+    "high_price": 8301397.5200000005,
+    "low_price": 8233527.062,
+    "sl_price": 8077037.6659285715,
+    "tp_price": 8622463.842,
+    "rrr": 1.63
 }
