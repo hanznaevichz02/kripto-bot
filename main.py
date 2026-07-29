@@ -1,7 +1,7 @@
 """
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
-   Versi: 3.9.2 (Synced, Stabilized, FVG & Anti-Fake Sweep)
+   Versi: 3.9.3 (Synced, Stabilized, Min RRR 1.5x Filter)
    SPOT MARKET
 ========================================================
 """
@@ -33,6 +33,7 @@ logger = logging.getLogger("CryptoBot")
 # ============================================================
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+MIN_RRR_THRESHOLD = 1.5  # Batas minimum RRR agar sinyal layak dikirim
 
 PORTFOLIO: Dict[str, Dict[str, float]] = {
     'BTC/USDT': {'buy_price_idr': 1_311_140_722, 'amount': 0.00076261},
@@ -78,7 +79,7 @@ DESKRIPSI = {
     'AKUMULASI':      ("AKUMULASI WHALE", "Volume besar, spread sempit (Nampung barang)."),
     'DISTRIBUSI':     ("DISTRIBUSI WHALE", "Volume besar, spread sempit (Jualan barang)."),
     'BULL_BREAKOUT':  ("BREAKOUT VOLUME", "Modal besar jebol atap ke atas + FVG."),
-    'BEAR_BREAKOUT':  ("BREAKDOWN VOLUME", "Modal besar jebol lantai ke bawah."),
+    'BEAR_BREAKOUT':  ("BEAR_BREAKOUT", "Modal besar jebol lantai ke bawah."),
 }
 
 # ============================================================
@@ -166,11 +167,8 @@ def deteksi_fvg(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]]]:
         
     c1, c2, c3 = df.iloc[-3], df.iloc[-2], df.iloc[-1]
     
-    # Bullish FVG: Low candle ke-3 > High candle ke-1
     if c3['low'] > c1['high']:
         result['bullish_fvg'] = {'high': float(c3['low']), 'low': float(c1['high'])}
-        
-    # Bearish FVG: High candle ke-3 < Low candle ke-1
     elif c3['high'] < c1['low']:
         result['bearish_fvg'] = {'high': float(c1['low']), 'low': float(c3['high'])}
         
@@ -195,10 +193,7 @@ def analisa(
     df_4h['ema50'] = df_4h['close'].ewm(span=50, adjust=False).mean()
     trend_4h_bull = df_4h['close'].iloc[-1] > df_4h['ema50'].iloc[-1]
 
-    # Candle Tertutup untuk Indikator (Bebas Repainting)
     c, p = df_1h.iloc[-2], df_1h.iloc[-3]
-    
-    # Candle Berjalan (Harga Live untuk JSON & Notif)
     latest_c = df_1h.iloc[-1]
     harga_idr = latest_c['close'] * usd_idr
     atr_idr = hitung_atr(df_1h) * usd_idr
@@ -231,7 +226,6 @@ def analisa(
         ob_mid = ((ob['bearish_ob']['high'] + ob['bearish_ob']['low']) / 2) * usd_idr
         dekat_bear_ob = abs(harga_idr - ob_mid) / ob_mid < 0.008
 
-    # Anti-Fake Sweep Filter: Valid jika disertai volume besar dan ada konfirmasi FVG
     ada_bullish_fvg = fvg['bullish_fvg'] is not None
     ada_bearish_fvg = fvg['bearish_fvg'] is not None
 
@@ -464,8 +458,13 @@ async def scan_asset(
             is_porto = symbol in PORTFOLIO
 
             if is_bullish:
+                # --- FILTER MUTLAK MINIMAL RRR ---
+                if hasil['rrr'] < MIN_RRR_THRESHOLD:
+                    logger.info(f"🚫 {symbol}: Sinyal {hasil['tipe']} diabaikan karena RRR ({hasil['rrr']}x) di bawah batas minimum ({MIN_RRR_THRESHOLD}x).")
+                    return None
+
                 hasil['symbol'] = symbol
-                logger.info(f"🎯 Kandidat BELI: {symbol} ({hasil['tipe']}) | Skor: {hasil['skor']} | RRR: {hasil['rrr']:.2f}x")
+                logger.info(f"🎯 Kandidat BELI: {symbol} ({hasil['tipe']}) | Skor: {hasil['skor']} | RRR: {hasil['rrr']:.2f}x (Lolos Filter)")
                 return hasil
 
             elif is_porto:
@@ -531,7 +530,7 @@ async def main():
                 await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
                 logger.info(f"✅ Terkirim: {item['symbol']} (Skor: {item['skor']} | RRR: {item['rrr']:.2f}x)")
         else:
-            logger.info("— Tidak ada sinyal BELI yang valid pada siklus ini.")
+            logger.info("— Tidak ada sinyal BELI yang valid (memenuhi syarat RRR >= 1.5x) pada siklus ini.")
 
         # --- EXPORT FILE STATE SINYAL (signal_smc.json) ---
         signal_export = {
