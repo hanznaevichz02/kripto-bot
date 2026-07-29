@@ -1,4 +1,5 @@
 """
+========================================================
 Bot TECH (v4.2.1 - Enhanced)
 Paper Trader Teknikal Multi-Asset dengan Logika Move-to-Break-Even (BE)
 
@@ -11,6 +12,7 @@ Fitur Utama:
    - Take Profit (TP) berbasis Swing High 4H / Multiplier ATR
    - Move to Break-Even (BE): Saat profit mencapai 1x Risk (1R), SL otomatis dinaikkan ke Entry + Buffer Fee
    - Murni mengandalkan TP & SL (Tanpa Death Cross Exit prematur)
+========================================================
 """
 
 import os
