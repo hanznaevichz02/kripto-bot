@@ -1,7 +1,7 @@
 """
 ========================================================
    KRIPTO BOT — Smart Money Edition (Main Scanner)
-   Versi: 3.9.1 (Synced, Stabilized & Clean HTML)
+   Versi: 3.9.2 (Synced, Stabilized, FVG & Anti-Fake Sweep)
    SPOT MARKET
 ========================================================
 """
@@ -37,7 +37,7 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 PORTFOLIO: Dict[str, Dict[str, float]] = {
     'BTC/USDT': {'buy_price_idr': 1_311_140_722, 'amount': 0.00076261},
     'ETH/USDT': {'buy_price_idr':    37_447_016, 'amount': 0.05060638},
-    'AVAX/USDT': {'buy_price_idr':      118_350, 'amount': 5.8661},
+    'AVAX/USDT': {'buy_price_idr':     118_350, 'amount': 5.8661},
 }
 
 ASSET_LIST: List[str] = [
@@ -71,14 +71,14 @@ JAM_LAPORAN = {9, 14, 20}
 BULLISH_SIGNAL_TYPES = {'BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT'}
 
 DESKRIPSI = {
-    'BULL_SWEEP':    ("HARGA AKAN NAIK", "Bandar sapu SL ritel, siap loncat naik."),
-    'BEAR_SWEEP':    ("HARGA AKAN TURUN", "Bandar jebak ritel beli, siap dump."),
-    'BULL_OB':       ("ZONA BELI BANDAR", "Harga kembali ke area demand institusi."),
-    'BEAR_OB':       ("ZONA JUAL BANDAR", "Harga menyentuh area supply institusi."),
-    'AKUMULASI':     ("AKUMULASI WHALE", "Volume besar, spread sempit (Nampung barang)."),
-    'DISTRIBUSI':    ("DISTRIBUSI WHALE", "Volume besar, spread sempit (Jualan barang)."),
-    'BULL_BREAKOUT': ("BREAKOUT VOLUME", "Modal besar jebol atap ke atas."),
-    'BEAR_BREAKOUT': ("BREAKDOWN VOLUME", "Modal besar jebol lantai ke bawah."),
+    'BULL_SWEEP':     ("HARGA AKAN NAIK", "Bandar sapu SL ritel disertai FVG, siap loncat naik."),
+    'BEAR_SWEEP':     ("HARGA AKAN TURUN", "Bandar jebak ritel beli, siap dump."),
+    'BULL_OB':        ("ZONA BELI BANDAR", "Harga kembali ke area demand institusi + FVG."),
+    'BEAR_OB':        ("ZONA JUAL BANDAR", "Harga menyentuh area supply institusi."),
+    'AKUMULASI':      ("AKUMULASI WHALE", "Volume besar, spread sempit (Nampung barang)."),
+    'DISTRIBUSI':     ("DISTRIBUSI WHALE", "Volume besar, spread sempit (Jualan barang)."),
+    'BULL_BREAKOUT':  ("BREAKOUT VOLUME", "Modal besar jebol atap ke atas + FVG."),
+    'BEAR_BREAKOUT':  ("BREAKDOWN VOLUME", "Modal besar jebol lantai ke bawah."),
 }
 
 # ============================================================
@@ -114,7 +114,7 @@ def format_rp(nilai: float) -> str:
     return f"Rp {nilai:,.0f}"
 
 # ============================================================
-# KALKULASI INDIKATOR & SMC
+# KALKULASI INDIKATOR, SMC & FVG
 # ============================================================
 
 def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
@@ -158,8 +158,26 @@ def deteksi_order_block(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]
 
     return result
 
+def deteksi_fvg(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]]]:
+    """Mendeteksi Fair Value Gap (FVG) pada 3 candle terakhir (i-2, i-1, i)"""
+    result = {'bullish_fvg': None, 'bearish_fvg': None}
+    if len(df) < 5:
+        return result
+        
+    c1, c2, c3 = df.iloc[-3], df.iloc[-2], df.iloc[-1]
+    
+    # Bullish FVG: Low candle ke-3 > High candle ke-1
+    if c3['low'] > c1['high']:
+        result['bullish_fvg'] = {'high': float(c3['low']), 'low': float(c1['high'])}
+        
+    # Bearish FVG: High candle ke-3 < Low candle ke-1
+    elif c3['high'] < c1['low']:
+        result['bearish_fvg'] = {'high': float(c1['low']), 'low': float(c3['high'])}
+        
+    return result
+
 # ============================================================
-# ANALISA UTAMA SCANNER
+# ANALISA UTAMA SCANNER (DENGAN ANTI-FAKE SWEEP & FVG)
 # ============================================================
 
 def analisa(
@@ -202,8 +220,9 @@ def analisa(
     cvd_naik = cvd_delta > 0
 
     ob = deteksi_order_block(df_1h)
+    fvg = deteksi_fvg(df_1h)
+    
     dekat_bull_ob = dekat_bear_ob = False
-
     if ob['bullish_ob']:
         ob_mid = ((ob['bullish_ob']['high'] + ob['bullish_ob']['low']) / 2) * usd_idr
         dekat_bull_ob = abs(harga_idr - ob_mid) / ob_mid < 0.008
@@ -212,11 +231,15 @@ def analisa(
         ob_mid = ((ob['bearish_ob']['high'] + ob['bearish_ob']['low']) / 2) * usd_idr
         dekat_bear_ob = abs(harga_idr - ob_mid) / ob_mid < 0.008
 
-    bull_sweep = (lower_wick > candle_range * 0.35) and vol_spike and (c['close'] >= p['low'])
-    bear_sweep = (upper_wick > candle_range * 0.35) and vol_spike and (c['close'] <= p['high'])
+    # Anti-Fake Sweep Filter: Valid jika disertai volume besar dan ada konfirmasi FVG
+    ada_bullish_fvg = fvg['bullish_fvg'] is not None
+    ada_bearish_fvg = fvg['bearish_fvg'] is not None
+
+    bull_sweep = (lower_wick > candle_range * 0.35) and vol_spike and (c['close'] >= p['low']) and ada_bullish_fvg
+    bear_sweep = (upper_wick > candle_range * 0.35) and vol_spike and (c['close'] <= p['high']) and ada_bearish_fvg
     is_absorption = vol_spike and (body_size < avg_range * 0.5)
 
-    bull_breakout = (c['close'] > c['open']) and (body_size > avg_range * 1.0) and vol_spike
+    bull_breakout = (c['close'] > c['open']) and (body_size > avg_range * 1.0) and vol_spike and ada_bullish_fvg
     bear_breakout = (c['close'] < c['open']) and (body_size > avg_range * 1.0) and vol_spike
 
     swing_4h = deteksi_swing_4h(df_4h, window=7)
@@ -233,10 +256,19 @@ def analisa(
     if sl_sell <= harga_idr * 1.015:
         sl_sell = harga_idr + (1.8 * atr_idr)
 
-    # Hitung RRR (Risk-to-Reward Ratio)
     risk_buy = max(harga_idr - sl_buy, 1.0)
     reward_buy = max(tp_buy - harga_idr, 0.0)
     rrr_buy = round(reward_buy / risk_buy, 2)
+
+    # --- SISTEM SKORING DINAMIS (0 - 100) ---
+    skor_dasar = 50.0
+    if trend_4h_bull: skor_dasar += 15.0
+    if vol_ultra: skor_dasar += 15.0
+    elif vol_spike: skor_dasar += 10.0
+    if cvd_naik: skor_dasar += 10.0
+    if ada_bullish_fvg: skor_dasar += 10.0
+    if funding_rate is not None and funding_rate <= 0.0005: skor_dasar += 5.0
+    skor_final = min(round(skor_dasar, 1), 100.0)
 
     base = {
         'harga': harga_idr, 'vol_ratio': vol_ratio,
@@ -249,17 +281,17 @@ def analisa(
         'rrr': rrr_buy, 
         'high_price': latest_c['high'] * usd_idr, 
         'low_price': latest_c['low'] * usd_idr,
-        'skor': 75.0, # Skor default agar kompatibel dengan paper trader
+        'skor': skor_final, 
     }
 
     strength = '🔥🔥🔥' if vol_ultra else '🔥🔥'
 
     if bull_sweep:
-        return {**base, 'tipe': 'BULL_SWEEP', 'aksi': '🟢 BELI / ENTRY DISKON (Sapu Bawah)', 'strength': strength}
+        return {**base, 'tipe': 'BULL_SWEEP', 'aksi': '🟢 BELI / ENTRY DISKON (Anti-Fake Sweep + FVG)', 'strength': strength}
     if bear_sweep:
         return {**base, 'tipe': 'BEAR_SWEEP', 'aksi': '🔴 JUAL / TAKE PROFIT (Awas Trap)', 'strength': strength}
-    if dekat_bull_ob and vol_spike:
-        return {**base, 'tipe': 'BULL_OB', 'aksi': '🟢 BELI (Antri Limit di Demand)', 'strength': '🔥🔥'}
+    if dekat_bull_ob and vol_spike and ada_bullish_fvg:
+        return {**base, 'tipe': 'BULL_OB', 'aksi': '🟢 BELI (Antri Limit di Demand + FVG)', 'strength': '🔥🔥'}
     if dekat_bear_ob and vol_spike:
         return {**base, 'tipe': 'BEAR_OB', 'aksi': '⏳ WAIT & SEE / CASH OUT', 'strength': '🔥🔥'}
     if is_absorption:
@@ -267,7 +299,7 @@ def analisa(
         tipe = 'AKUMULASI' if c['close'] >= c['open'] else 'DISTRIBUSI'
         return {**base, 'tipe': tipe, 'aksi': aksi, 'strength': '🔥'}
     if bull_breakout:
-        return {**base, 'tipe': 'BULL_BREAKOUT', 'aksi': '🟢 FOLLOW TREND (Breakout)', 'strength': strength}
+        return {**base, 'tipe': 'BULL_BREAKOUT', 'aksi': '🟢 FOLLOW TREND (Breakout + FVG)', 'strength': strength}
     if bear_breakout:
         return {**base, 'tipe': 'BEAR_BREAKOUT', 'aksi': '⏳ TUNGGU DI BAWAH (Wait Drop)', 'strength': strength}
 
@@ -308,6 +340,7 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
         f"[ 1. SIGNAL DETECTION ]\n"
         f"  • Trigger : {judul}\n"
         f"  • Tren 4H : {s['trend_4h']}\n"
+        f"  • Skor    : {s.get('skor', 0.0)} / 100\n"
         f"  • Harga   : {harga}\n"
         f"------------------------------\n"
         f"[ 2. MARKET METRICS ]\n"
@@ -432,7 +465,7 @@ async def scan_asset(
 
             if is_bullish:
                 hasil['symbol'] = symbol
-                logger.info(f"🎯 Kandidat BELI: {symbol} ({hasil['tipe']}) | RRR: {hasil['rrr']:.2f}x | Vol: {hasil['vol_ratio']}x")
+                logger.info(f"🎯 Kandidat BELI: {symbol} ({hasil['tipe']}) | Skor: {hasil['skor']} | RRR: {hasil['rrr']:.2f}x")
                 return hasil
 
             elif is_porto:
@@ -484,10 +517,10 @@ async def main():
         hasil_scan = await asyncio.gather(*tasks)
         kumpulan_sinyal = [s for s in hasil_scan if s is not None]
 
-        # --- RANKING KANDIDAT (RRR Terbesar -> Tie-Breaker: Vol Ratio Terbesar) ---
+        # --- RANKING KANDIDAT (Skor Terbesar -> Tie-Breaker: RRR & Vol Ratio) ---
         best_signal = None
         if kumpulan_sinyal:
-            kumpulan_sinyal.sort(key=lambda x: (x.get('rrr', 0.0), x.get('vol_ratio', 0.0)), reverse=True)
+            kumpulan_sinyal.sort(key=lambda x: (x.get('skor', 0.0), x.get('rrr', 0.0), x.get('vol_ratio', 0.0)), reverse=True)
             top_prospek = kumpulan_sinyal[:2]
             best_signal = kumpulan_sinyal[0]
 
@@ -496,7 +529,7 @@ async def main():
             for item in top_prospek:
                 pesan = format_pesan(item['symbol'], item)
                 await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
-                logger.info(f"✅ Terkirim: {item['symbol']} (RRR: {item['rrr']:.2f}x | Vol: {item['vol_ratio']}x)")
+                logger.info(f"✅ Terkirim: {item['symbol']} (Skor: {item['skor']} | RRR: {item['rrr']:.2f}x)")
         else:
             logger.info("— Tidak ada sinyal BELI yang valid pada siklus ini.")
 
@@ -505,7 +538,7 @@ async def main():
             "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
             "symbol": best_signal['symbol'] if best_signal else "NONE",
             "signal_type": best_signal['tipe'] if best_signal else None,
-            "score": best_signal.get('skor', 75.0) if best_signal else 0.0,
+            "score": best_signal.get('skor', 0.0) if best_signal else 0.0,
             "current_price": best_signal['harga'] if best_signal else 0.0,
             "high_price": best_signal['high_price'] if best_signal else 0.0,
             "low_price": best_signal['low_price'] if best_signal else 0.0,
