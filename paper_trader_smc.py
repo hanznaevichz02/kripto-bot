@@ -3,7 +3,7 @@
    KRIPTO BOT — SMC Swing Edition (Multi-Asset Paper Trading)
    Strategi: Smart Money Concepts (CHoCH, BOS, Order Block, Swing 4H)
    Market  : MURNI SPOT 100% (Multi-Asset Watchlist)
-   Versi   : 4.3.0 (Funding Rate & Market Sentiment Integrated)
+   Versi   : 4.3.1 (Anti-Fake Sweep & Clean HTML Telegram)
 ========================================================
 """
 
@@ -23,7 +23,7 @@ CHAT_ID             = os.getenv("TELEGRAM_CHAT_ID")
 INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE          = "paper_trading_smc.json"
 SIGNAL_FILE         = "signal_smc.json"
-FEE_TAX_RATE        = 0.013   # Fee + Pajak PMK 68 (1.3% per siklus roundtrip)
+FEE_TAX_RATE        = 0.013    # Fee + Pajak PMK 68 (1.3% per siklus roundtrip)
 MIN_SCORE_ENTRY     = 70      # Batas minimal skor kelayakan entry SMC
 
 # Watchlist Multi-Asset Spot
@@ -221,15 +221,15 @@ class SmcPaperTrader:
                 win_rate = (wins / total_trades) * 100 if total_trades > 0 else 0.0
                 sisa_kas = self.state["cash_idr"]
                 
-                # TAMPILAN NOTIFIKASI SEJAJAR DENGAN AGR
+                # TAMPILAN NOTIFIKASI HTML SEJAJAR DENGAN AGR
                 return (
-                    f"🧪 *[PAPER TRADING - SMC EXIT]* {active_pair}\n"
+                    f"🧪 <b>[PAPER TRADING - SMC EXIT]</b> {active_pair}\n"
                     f"──────────────────────────────\n"
                     f"Alasan    : {exit_reason}\n"
                     f"Harga In  : Rp {entry_p:,.0f}\n"
                     f"Harga Out : Rp {exit_price:,.0f}\n"
                     f"P/L       : {pnl_pct:+.2f}% (Rp {pnl_val:+,.0f})\n\n"
-                    f"📊 *REKAP TOTAL SMC:*\n"
+                    f"📊 <b>REKAP TOTAL SMC:</b>\n"
                     f"• Total Trade : {total_trades}x\n"
                     f"• Win / Loss  : {wins} Win / {losses} Loss (WR: {win_rate:.1f}%)\n"
                     f"• Total P/L   : Rp {total_pnl:+,.0f}\n"
@@ -256,21 +256,22 @@ class SmcPaperTrader:
                 score_str = ""
                 if score_info:
                     sc, breakdown = score_info
-                    score_str = f"Skor Setup: `{sc}/100`\n" + "\n".join(breakdown) + "\n"
+                    score_str = f"📊 <b>SKOR SETUP SMC JUARA #1</b>: <code>{sc}/100</code>\n<b>Rincian Skoring</b>:\n" + "\n".join(breakdown) + "\n"
 
                 return (
-                    f"🧪 *[PAPER TRADING - SMC ENTRY]* {target_pair_name}\n"
+                    f"🧪 <b>[PAPER TRADING - SMC ENTRY]</b> {target_pair_name}\n"
                     f"──────────────────────────────\n"
                     f"{score_str}"
+                    f"──────────────────────────────\n"
                     f"Modal In  : Rp {cash:,.0f}\n"
                     f"Harga In  : Rp {current_price:,.0f}\n"
-                    f"TP Target : Rp {tp_price:,.0f}\n"
-                    f"SL Batas  : Rp {sl_price:,.0f}"
+                    f"Target TP : Rp {tp_price:,.0f}\n"
+                    f"Batas SL  : Rp {sl_price:,.0f}"
                 )
         return None
 
 async def main():
-    print("DEBUG: Menjalankan Paper Trader SMC Multi-Asset Scanner (v4.3.0)...")
+    print("DEBUG: Menjalankan Paper Trader SMC Multi-Asset Scanner (v4.3.1 - Anti Trap)...")
     
     # Inisialisasi Kucoin Spot & Futures
     exchange_spot = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
@@ -324,10 +325,20 @@ async def main():
             reward = tp_price - harga_idr
             rrr = (reward / risk) if risk > 0 else 0
 
-            # Deteksi SMC
-            choch = bool(curr['close'] > curr['open'] and curr['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.5))
+            # --- DETEKSI SMC DENGAN ANTI-TRAP FILTER ---
+            candle_range    = curr['high'] - curr['low']
+            tutup_hijau_smc = curr['close'] > curr['open']
+            tutup_merah_smc = curr['close'] < curr['open']
+            body_size       = abs(curr['close'] - curr['open'])
+            is_panic_dump   = tutup_merah_smc and (body_size > candle_range * 0.5)
+
+            # CHoCH Valid: Wajib Candle HIJAU dan Bukan Panic Dump
+            vol_spike_choch = curr['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.5)
+            choch = bool(tutup_hijau_smc and vol_spike_choch and not is_panic_dump)
+
+            # BOS & Mitigasi Order Block
             bos = bool(curr['close'] > df_1h['high'].iloc[-5:-2].max())
-            mitigation = bool(low_idr <= (swing['swing_low'] * usd_idr * 1.01))
+            mitigation = bool(low_idr <= (swing['swing_low'] * usd_idr * 1.01) and tutup_hijau_smc)
             vol_spike = bool(curr['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.8))
 
             # Fetch Funding Rate Kucoin Futures
@@ -375,7 +386,7 @@ async def main():
                 
                 msg = pt_smc.process(active_pair, "CHECK_EXIT", c_idr, h_idr, l_idr, now_str, 0, 0)
                 if msg:
-                    await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
+                    await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='HTML')
                     notif_sent = True
                 break
     elif candidates:
@@ -383,7 +394,7 @@ async def main():
         save_signal({"timestamp": now_str, **top})
         msg = pt_smc.process(top["pair"], top["signal"], top["price"], top["high"], top["low"], now_str, top["sl"], top["tp"], (top["score"], top["breakdown"]))
         if msg:
-            await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
+            await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='HTML')
             print(f"   🧪 Notif Entry SMC Terkirim untuk Juara #1 ({top['pair']})")
             notif_sent = True
 
