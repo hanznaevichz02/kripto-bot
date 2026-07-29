@@ -1,9 +1,8 @@
-"""
 ========================================================
-   KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading)
-   Mode    : MULTI-ASSET SCANNER + RANKING SYSTEM (16 Koin)
-   Aturan  : STRICT 1 OPEN POSITION ONLY + JSON SIGNAL OUTPUT
-   Versi   : 4.3.0 (Funding Rate Integrated & Clean Telegram HTML)
+    KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading)
+    Mode    : MULTI-ASSET SCANNER + RANKING SYSTEM (16 Koin)
+    Aturan  : STRICT 1 OPEN POSITION ONLY + JSON SIGNAL OUTPUT
+    Versi   : 4.3.1 (Anti-Fake Sweep & Strict Confirmation)
 ========================================================
 """
 
@@ -193,15 +192,35 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
         df_1h['atr'] = df_1h['tr'].rolling(window=14).mean()
         atr_idr      = float(df_1h['atr'].iloc[curr_idx] * usd_idr)
 
-        # 1. SMC LOGIC
+        # 1. SMC LOGIC (STRICT ANTI-TRAP UPDATE)
         avg_vol_smc   = float(df_1h['volume'].iloc[-22:-2].median())
         candle_range  = c['high'] - c['low']
         lower_wick    = min(c['close'], c['open']) - c['low']
         upper_wick    = c['high'] - max(c['close'], c['open'])
         vol_spike_smc = c['volume'] > (avg_vol_smc * VOL_MULTIPLIER_SMC)
 
-        bull_sweep_smc = bool((lower_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] >= p['low']))
-        bear_sweep_smc = bool((upper_wick > candle_range * 0.35) and vol_spike_smc and (c['close'] <= p['high']))
+        # FIX: Tambahkan validasi penutupan candle dan ketebalan body
+        tutup_hijau_smc = c['close'] > c['open']
+        tutup_merah_smc = c['close'] < c['open']
+        body_size       = abs(c['close'] - c['open'])
+        is_panic_dump   = tutup_merah_smc and (body_size > candle_range * 0.5)
+
+        # Bull Sweep Wajib Penutupan HIJAU dan Bukan Panic Dump
+        bull_sweep_smc = bool(
+            (lower_wick > candle_range * 0.35) and 
+            vol_spike_smc and 
+            tutup_hijau_smc and 
+            not is_panic_dump and 
+            (c['close'] > p['low'])
+        )
+        
+        # Bear Sweep Wajib Penutupan MERAH
+        bear_sweep_smc = bool(
+            (upper_wick > candle_range * 0.35) and 
+            vol_spike_smc and 
+            tutup_merah_smc and 
+            (c['close'] < p['high'])
+        )
 
         # 2. TEKNIKAL LOGIC
         df_1h['ema9']         = df_1h['close'].ewm(span=9, adjust=False).mean()
@@ -279,7 +298,7 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
 
 # --- MAIN EXECUTOR ---
 async def main():
-    print("DEBUG: Menjalankan Paper Trader Hybrid Multi-Asset Scanner (v4.3.0)...")
+    print("DEBUG: Menjalankan Paper Trader Hybrid Multi-Asset Scanner (v4.3.1 - Anti Trap)...")
     
     # Inisialisasi Kucoin Spot & Futures
     exchange_spot = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
