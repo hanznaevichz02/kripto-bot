@@ -1,7 +1,7 @@
 """
 ========================================================
-    KRIPTO BOT — Analisa Simpel & Dinamis
-    Fungsi  : Menganalisa 4H & 1D dengan Level Dinamis
+    KRIPTO BOT — Analisa Simpel, Dinamis & Rapi
+    Fungsi  : Menganalisa 4H & 1D dengan Formatting Presisi
 ========================================================
 """
 
@@ -11,6 +11,7 @@ import pandas as pd
 import requests
 from telegram import Bot
 import asyncio
+import textwrap
 
 # --- KONFIGURASI ---
 TOKEN  = os.getenv("TELEGRAM_TOKEN")
@@ -31,6 +32,11 @@ def get_usd_idr() -> float:
         return float(r.json()['ticker']['last'])
     except Exception:
         return 18000.0
+
+def rapihkan_teks(label: str, teks: str, width: int = 35) -> str:
+    """Memotong teks panjang agar ter-indentasi rapi di bawah label"""
+    indent_spasi = " " * len(label)
+    return textwrap.fill(teks, width=width, initial_indent=label, subsequent_indent=indent_spasi)
 
 def run_analysis():
     print(f"DEBUG: Memulai analisa manual untuk {SYMBOL}...")
@@ -105,9 +111,9 @@ def run_analysis():
         rsi_4h = df_4h['rsi'].iloc[-1]
 
         if rsi_4h >= 70:
-            status_rsi = f"Kekenyangan/Ketinggian ({rsi_4h:.0f}) - Rawan Turun"
+            status_rsi = f"Kekenyangan ({rsi_4h:.0f}) - Rawan Turun"
         elif rsi_4h <= 30:
-            status_rsi = f"Kebanting/Kemurahan ({rsi_4h:.0f}) - Potensi Mantul"
+            status_rsi = f"Kebanting ({rsi_4h:.0f}) - Potensi Mantul"
         else:
             status_rsi = f"Wajar/Normal ({rsi_4h:.0f})"
 
@@ -128,13 +134,20 @@ def run_analysis():
             smc_kondisi = "Pasar lagi lesu/rusak. Bandar masih cenderung jualan."
             smc_rekomendasi = "Jangan coba-coba melawan arus. Tahan diri dulu dari posisi Beli."
             tech_kondisi = "Tren TURUN dominan. Tekanan jual masih lumayan tinggi."
-            tech_rekomendasi = "Wait & See (Nonton dulu). Hanya spekulasi beli kalau harga sudah murah banget dekat Lantai 2."
+            tech_rekomendasi = "Wait & See (Nonton dulu). Hanya spekulasi beli kalau harga sudah murah banget."
             
         else: # 1D Bearish, 4H Bullish
             smc_kondisi = "Harga naik cuma buat 'napas' sebentar sebelum potensi lanjut turun lagi."
             smc_rekomendasi = "Waspada Jebakan Naik (Bull Trap)! Jangan tergiur beli di pucuk."
             tech_kondisi = "Pantulan harga sementara di tengah tren turun besar."
             tech_rekomendasi = "Kalau punya barang, manfaatkan kenaikan mendekati Atap 1 buat Take Profit / Jualan."
+
+        # --- FORMATTING TEKS PARAGRAF AGAR PRESISI ---
+        smc_k_formatted = rapihkan_teks("• Kondisi  : ", smc_kondisi)
+        smc_r_formatted = rapihkan_teks("• Rekom    : ", smc_rekomendasi)
+        
+        tech_k_formatted = rapihkan_teks("• Kondisi  : ", tech_kondisi)
+        tech_r_formatted = rapihkan_teks("• Rekom    : ", tech_rekomendasi)
 
         # --- FORMAT PESAN TELEGRAM ---
         bot = Bot(token=TOKEN)
@@ -150,12 +163,12 @@ def run_analysis():
             f"{level_1d_teks}\n"
             f"----------------------------------\n"
             f"📋 PERSPEKTIF BANDAR (SMC)\n"
-            f"• Kondisi     : {smc_kondisi}\n"
-            f"• Rekomendasi : {smc_rekomendasi}\n"
+            f"{smc_k_formatted}\n"
+            f"{smc_r_formatted}\n"
             f"----------------------------------\n"
             f"📋 PERSPEKTIF TEKNIKAL (TECH)\n"
-            f"• Kondisi     : {tech_kondisi}\n"
-            f"• Rekomendasi : {tech_rekomendasi}\n"
+            f"{tech_k_formatted}\n"
+            f"{tech_r_formatted}\n"
             f"```"
         )
         
