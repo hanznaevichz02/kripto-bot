@@ -1,9 +1,9 @@
 """
 ========================================================
-    KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading)
-    Mode    : MULTI-ASSET SCANNER + RANKING SYSTEM (16 Koin)
-    Aturan  : STRICT 1 OPEN POSITION ONLY + JSON SIGNAL OUTPUT
-    Versi   : 4.3.0 (Integrasi signal_agr.json & Clean Telegram HTML)
+   KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading)
+   Mode    : MULTI-ASSET SCANNER + RANKING SYSTEM (16 Koin)
+   Aturan  : STRICT 1 OPEN POSITION ONLY + JSON SIGNAL OUTPUT
+   Versi   : 4.3.0 (Funding Rate Integrated & Clean Telegram HTML)
 ========================================================
 """
 
@@ -35,6 +35,26 @@ ASSET_LIST = [
     'ARB/USDT', 'NEAR/USDT', 'ZEC/USDT', 'TAO/USDT', 'AVAX/USDT',
     'ADA/USDT'
 ]
+
+# Mapping Simbol Spot ke Kucoin Futures untuk Fetch Funding Rate (16 Koin)
+FUTURES_MAP = {
+    'BTC/USDT': 'XBTUSDTM',
+    'ETH/USDT': 'ETHUSDTM',
+    'SOL/USDT': 'SOLUSDTM',
+    'BNB/USDT': 'BNBUSDTM',
+    'SUI/USDT': 'SUIUSDTM',
+    'XRP/USDT': 'XRPUSDTM',
+    'LINK/USDT': 'LINKUSDTM',
+    'AAVE/USDT': 'AAVEUSDTM',
+    'DOT/USDT': 'DOTUSDTM',
+    'ONDO/USDT': 'ONDOUSDTM',
+    'ARB/USDT': 'ARBUSDTM',
+    'NEAR/USDT': 'NEARUSDTM',
+    'ZEC/USDT': 'ZECUSDTM',
+    'TAO/USDT': 'TAOUSDTM',
+    'AVAX/USDT': 'AVAXUSDTM',
+    'ADA/USDT': 'ADAUSDTM'
+}
 
 # --- MANAJEMEN STATE & SIGNAL ---
 def load_state():
@@ -72,6 +92,15 @@ def get_usd_idr() -> float:
     except Exception:
         return 18000.0
 
+def get_funding_rate(exchange_futures, futures_symbol):
+    """Mengambil nilai Funding Rate dari Kucoin Futures."""
+    try:
+        info = exchange_futures.fetch_funding_rate(futures_symbol)
+        return float(info.get('fundingRate', 0))
+    except Exception as e:
+        print(f"Gagal ambil funding rate {futures_symbol}: {e}")
+        return None
+
 def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
     swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
     swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
@@ -79,7 +108,7 @@ def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
 
 def hitung_skor_hybrid(ema9_now, ema21_now, is_spike_vol_tech, vol_spike_smc,
                         golden_cross, pullback_bounce, bull_sweep_smc,
-                        harga_idr, sl_price, tp_price):
+                        harga_idr, sl_price, tp_price, funding_rate=None):
     score = 0
     breakdown = []
 
@@ -117,14 +146,28 @@ def hitung_skor_hybrid(ema9_now, ema21_now, is_spike_vol_tech, vol_spike_smc,
         score += 15
         breakdown.append(f"• RRR Cukup Baik ({rrr:.2f} >= 1.5) (+15)")
 
-    final_score = min(score, 100)
+    # 5. SKORING TERINTEGRASI FUNDING RATE (-15 / +15 Poin)
+    if funding_rate is not None:
+        fr_pct = funding_rate * 100
+        if funding_rate < -0.0005:    # < -0.05% (Potensi Short Squeeze)
+            score += 15
+            breakdown.append(f"• Funding Rate Negatif Squeeze ({fr_pct:.4f}%) (+15)")
+        elif funding_rate > 0.0005:   # > +0.05% (Overheated Long / Rawan Dump)
+            score -= 15
+            breakdown.append(f"• Funding Rate Overheated Long ({fr_pct:.4f}%) (-15)")
+        else:
+            breakdown.append(f"• Funding Rate Normal ({fr_pct:+.4f}%) (+0)")
+    else:
+        breakdown.append("• Funding Rate: N/A (+0)")
+
+    final_score = max(0, min(score, 100))
     return final_score, rrr, breakdown
 
 # --- ANALISA SINGLE KOIN ---
-def analisa_koin_hybrid(exchange, symbol, usd_idr):
+def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
     try:
-        bars_1h = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=50)
-        bars_4h = exchange.fetch_ohlcv(symbol, timeframe='4h', limit=30)
+        bars_1h = exchange_spot.fetch_ohlcv(symbol, timeframe='1h', limit=50)
+        bars_4h = exchange_spot.fetch_ohlcv(symbol, timeframe='4h', limit=30)
 
         if len(bars_1h) < 40 or len(bars_4h) < 15:
             return None
@@ -137,7 +180,6 @@ def analisa_koin_hybrid(exchange, symbol, usd_idr):
         c = df_1h.iloc[curr_idx]
         p = df_1h.iloc[prev_idx]
         
-        # PERBAIKAN BUG A & B: Hargai eksekusi & cek TP/SL wajib pakai candle berjalan saat ini (live)
         latest_c = df_1h.iloc[-1] 
         harga_idr  = float(latest_c['close'] * usd_idr)
         high_idr   = float(latest_c['high'] * usd_idr)
@@ -198,11 +240,15 @@ def analisa_koin_hybrid(exchange, symbol, usd_idr):
         if tp_bullish <= harga_idr * 1.015: tp_bullish = harga_idr + (3.5 * atr_idr)
         if sl_bullish >= harga_idr * 0.985: sl_bullish = harga_idr - (1.8 * atr_idr)
 
-        # SKORING
+        # FETCH FUNDING RATE KUCOIN FUTURES
+        futures_symbol = FUTURES_MAP.get(symbol)
+        funding_rate = get_funding_rate(exchange_futures, futures_symbol) if futures_symbol else None
+
+        # SKORING TERINTEGRASI FUNDING RATE
         score, rrr, breakdown = hitung_skor_hybrid(
             ema9_now, ema21_now, is_spike_vol_tech, vol_spike_smc,
             golden_cross, pullback_bounce, bull_sweep_smc,
-            harga_idr, sl_bullish, tp_bullish
+            harga_idr, sl_bullish, tp_bullish, funding_rate
         )
 
         pemicu_list = []
@@ -233,10 +279,14 @@ def analisa_koin_hybrid(exchange, symbol, usd_idr):
 
 # --- MAIN EXECUTOR ---
 async def main():
-    print("DEBUG: Menjalankan Paper Trader Hybrid Multi-Asset Scanner...")
-    exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
+    print("DEBUG: Menjalankan Paper Trader Hybrid Multi-Asset Scanner (v4.3.0)...")
+    
+    # Inisialisasi Kucoin Spot & Futures
+    exchange_spot = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
+    exchange_futures = ccxt.kucoinfutures({'enableRateLimit': True, 'timeout': 30000})
+    
     try: 
-        exchange.load_markets()
+        exchange_spot.load_markets()
     except Exception as e: 
         print(f"Gagal memuat market: {e}")
         return
@@ -253,7 +303,7 @@ async def main():
     if pos:
         symbol = pos["symbol"]
         pair_name = pos["pair_name"]
-        data = analisa_koin_hybrid(exchange, symbol, usd_idr)
+        data = analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr)
         
         if data:
             entry_p, amount, sl, tp = pos["entry_price_idr"], pos["amount"], pos["sl"], pos["tp"]
@@ -272,7 +322,6 @@ async def main():
                     exit_reason = f"EMERGENCY EXIT ({data['emerg_reason']}) ⚠️"
                     exit_price  = data["harga_idr"]
 
-                # Pemotongan fee + pajak (1.3%) tetap dilakukan penuh saat EXIT
                 gross = exit_price * amount
                 net   = gross - (gross * FEE_TAX_RATE)
                 modal = entry_p * amount
@@ -320,13 +369,12 @@ async def main():
 
     # =========================================================
     # 2. SCANNING, RANKING & PENYIMPANAN SIGNAL JSON
-    # PERBAIKAN BUG C: Selalu dijalankan agar signal_agr.json selalu ter-update
     # =========================================================
     candidates = []
     scanned_summary = []
     
     for symbol in ASSET_LIST:
-        res = analisa_koin_hybrid(exchange, symbol, usd_idr)
+        res = analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr)
         if res:
             scanned_summary.append(res)
             if res["is_entry"] and res["score"] >= MIN_SCORE_ENTRY:
