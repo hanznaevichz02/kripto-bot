@@ -1,8 +1,7 @@
 """
 ========================================================
-    KRIPTO BOT — Manual Analysis Script
-    Fungsi  : Menganalisa koin pilihan via input GitHub Actions
-    Output  : Kirim hasil prediksi jangka pendek & panjang ke Telegram
+    KRIPTO BOT — Advanced Analysis Script
+    Fungsi  : Menganalisa tren, RSI, & Skenario Trading (TP/SL)
 ========================================================
 """
 
@@ -16,7 +15,6 @@ from telegram import Bot
 TOKEN  = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Menangkap input simbol dari GitHub Actions (default ke BTC/USDT jika kosong)
 raw_symbol = os.getenv("INPUT_SYMBOL", "BTC/USDT").upper().strip()
 if "/" not in raw_symbol:
     SYMBOL = f"{raw_symbol}/USDT"
@@ -32,8 +30,8 @@ def get_usd_idr() -> float:
     except Exception:
         return 18000.0
 
-def run_manual_analysis():
-    print(f"DEBUG: Memulai analisa manual untuk {SYMBOL}...")
+def run_advanced_analysis():
+    print(f"DEBUG: Memulai analisa lanjutan untuk {SYMBOL}...")
     exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
     
     try:
@@ -57,60 +55,76 @@ def run_manual_analysis():
 
         curr_idx = -2
         c = df_1h.iloc[curr_idx]
-        harga_idr = float(c['close'] * usd_idr)
+        harga_sekarang = float(c['close'] * usd_idr)
 
-        # Indikator Teknikal (EMA & ATR di 1H untuk Jangka Pendek)
+        # --- INDIKATOR TEKNIKAL 1H ---
         df_1h['ema9'] = df_1h['close'].ewm(span=9, adjust=False).mean()
         df_1h['ema21'] = df_1h['close'].ewm(span=21, adjust=False).mean()
         
+        # ATR (Volatilitas)
         tr0 = df_1h['high'] - df_1h['low']
         tr1 = (df_1h['high'] - df_1h['close'].shift(1)).abs()
         tr2 = (df_1h['low']  - df_1h['close'].shift(1)).abs()
         df_1h['tr']  = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1)
         df_1h['atr'] = df_1h['tr'].rolling(window=14).mean()
         
+        # RSI 14 (Momentum)
+        delta = df_1h['close'].diff()
+        up = delta.clip(lower=0)
+        down = -1 * delta.clip(upper=0)
+        ema_up = up.ewm(com=13, adjust=False).mean()
+        ema_down = down.ewm(com=13, adjust=False).mean()
+        rs = ema_up / ema_down
+        df_1h['rsi'] = 100 - (100 / (1 + rs))
+
+        # Variabel Nilai Indikator
         atr_idr = float(df_1h['atr'].iloc[curr_idx] * usd_idr)
+        rsi_now = df_1h['rsi'].iloc[curr_idx]
+        ema21_idr = float(df_1h['ema21'].iloc[curr_idx] * usd_idr)
 
-        # 1. Target Jangka Pendek (Berbasis ATR / Fluktuasi 1 Jam Terdekat)
-        is_bullish_1h = df_1h['ema9'].iloc[curr_idx] > df_1h['ema21'].iloc[curr_idx]
-        tren_pendek = "Potensi Naik" if is_bullish_1h else "Potensi Turun"
+        # --- LEVEL KUNCI 4H ---
+        swing_low = float(df_4h['low'].iloc[-15:-1].min()) * usd_idr
+        swing_high = float(df_4h['high'].iloc[-15:-1].max()) * usd_idr
+
+        # --- LOGIKA SKENARIO & STATUS ---
+        is_bullish = df_1h['ema9'].iloc[curr_idx] > df_1h['ema21'].iloc[curr_idx]
         
-        if is_bullish_1h:
-            status_pendek = "Naik ke"
-            harga_pendek_val = harga_idr + (1.0 * atr_idr)
+        # Status Momentum RSI
+        if rsi_now >= 70:
+            status_rsi = f"Overbought (RSI {rsi_now:.0f}) - Rawan Longsor"
+        elif rsi_now <= 30:
+            status_rsi = f"Oversold (RSI {rsi_now:.0f}) - Potensi Mantul"
         else:
-            status_pendek = "Turun ke"
-            harga_pendek_val = harga_idr - (1.0 * atr_idr)
+            status_rsi = f"Normal (RSI {rsi_now:.0f})"
 
-        # 2. Target Jangka Panjang (Berbasis Swing High/Low 4H untuk Tren Lebih Luas)
-        swing_low_4h = float(df_4h['low'].iloc[-15:-1].min()) * usd_idr
-        swing_high_4h = float(df_4h['high'].iloc[-15:-1].max()) * usd_idr
-        
-        is_bullish_4h = df_4h['close'].iloc[-2] > df_4h['open'].iloc[-2] # Sederhana atau pakai EMA 4H
-        
-        if is_bullish_1h: # Mengikuti momentum pendek atau struktur 4H
-            status_panjang = "Naik ke"
-            harga_panjang_val = swing_high_4h
+        # Skenario Trading
+        if is_bullish:
+            tren_teks = "BULLISH 🟢"
+            rekomendasi = "Buy on Dip / Hold"
+            area_beli = f"Rp {ema21_idr:,.0f} - Rp {harga_sekarang:,.0f}"
+            target_tp = f"Rp {swing_high:,.0f}"
+            batas_sl  = f"Rp {ema21_idr - (1.5 * atr_idr):,.0f}"
         else:
-            status_panjang = "Turun ke"
-            harga_panjang_val = swing_low_4h
+            tren_teks = "BEARISH 🔴"
+            rekomendasi = "Wait & See / Serok Bawah"
+            area_beli = f"Kisaran Rp {swing_low:,.0f}"
+            target_tp = f"Rebound ke Rp {ema21_idr:,.0f}"
+            batas_sl  = f"Rp {swing_low - (1.0 * atr_idr):,.0f}"
 
-        harga_pendek = f"Rp {harga_pendek_val:,.0f}"
-        harga_panjang = f"Rp {harga_panjang_val:,.0f}"
-
-        # Kirim ke Telegram dengan format dibungkus block code ( ``` )
+        # --- FORMAT PESAN TELEGRAM ---
         bot = Bot(token=TOKEN)
         msg = (
             f"```text\n"
-            f"🔍 [ANALISA] — {PAIR_NAME}\n"
+            f"🔍 [ANALISA ADVANCED] — {PAIR_NAME}\n"
             f"----------------------------------\n"
-            f"• Harga Sekarang  : Rp {harga_idr:,.0f}\n"
-            f"\n"
-            f"• Tren Pendek     : {tren_pendek}\n"
-            f"• Jangka Pendek   : {status_pendek}\n"
-            f"                    {harga_pendek}\n"
-            f"• Jangka Panjang  : {status_panjang}\n"
-            f"                    {harga_panjang}\n"
+            f"• Harga       : Rp {harga_sekarang:,.0f}\n"
+            f"• Tren (1H)   : {tren_teks}\n"
+            f"• Momentum    : {status_rsi}\n\n"
+            f"📋 SKENARIO TRADING SPOT\n"
+            f"• Aksi        : {rekomendasi}\n"
+            f"• Area Beli   : {area_beli}\n"
+            f"• Take Profit : {target_tp}\n"
+            f"• Cut Loss    : {batas_sl}\n"
             f"----------------------------------\n"
             f"Status: Selesai (On-Demand)\n"
             f"```"
@@ -121,10 +135,10 @@ def run_manual_analysis():
             await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
         
         asyncio.run(send())
-        print(f"Sukses mengirim analisa manual {PAIR_NAME} ke Telegram.")
+        print(f"Sukses mengirim analisa {PAIR_NAME} ke Telegram.")
 
     except Exception as e:
         print(f"Error saat analisa {SYMBOL}: {e}")
 
 if __name__ == '__main__':
-    run_manual_analysis()
+    run_advanced_analysis()
