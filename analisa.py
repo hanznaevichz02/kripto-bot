@@ -1,7 +1,7 @@
 """
 ========================================================
     KRIPTO BOT — Analisa Simpel, Dinamis & Rapi
-    Fungsi  : Menganalisa 4H & 1D dengan Formatting Presisi
+    Fungsi  : Menganalisa 4H & 1D + Logika Hold (TP / SL)
 ========================================================
 """
 
@@ -34,7 +34,7 @@ def get_usd_idr() -> float:
         return 18000.0
 
 def rapihkan_teks(label: str, teks: str, width: int = 35) -> str:
-    """Memotong teks panjang agar ter-indentasi rapi di bawah label"""
+    """Memotong teks panjang agar ter-indentasi rapi tepat di bawah titik dua label"""
     indent_spasi = " " * len(label)
     return textwrap.fill(teks, width=width, initial_indent=label, subsequent_indent=indent_spasi)
 
@@ -117,37 +117,59 @@ def run_analysis():
         else:
             status_rsi = f"Wajar/Normal ({rsi_4h:.0f})"
 
-        # --- LOGIKA BAHASA SIMPEL (SMC & TECH) ---
+        # --- LOGIKA TERTINGGI (SKENARIO NAIK / TURUN / CAMPURAN) ---
         if is_bullish_1d and is_bullish_4h:
+            # 1. PASAR NAIK KUAT (1D & 4H KOMPAK NAIK) -> Fokus TP
             smc_kondisi = "Tren besar & kecil kompak NAIK. Bandar lagi dorong harga ke atas."
             smc_rekomendasi = "Sabar, tunggu harga agak diskon dikit turun dulu baru ikutan Beli."
+            smc_hold = f"Pertimbangkan TP di Atap 2 (Rp {r2_idr:,.0f})."
+
             tech_kondisi = "Kondisi pasar lagi bagus dan stabil (Uptrend kuat)."
             tech_rekomendasi = "Aman buat Beli. Kalau tembus Atap 1, potensi lanjut naik tinggi."
-            
-        elif is_bullish_1d and not is_bullish_4h:
-            smc_kondisi = "Tren besar masih NAIK, tapi jangka pendek lagi TURUN buat cari tenaga baru."
-            smc_rekomendasi = "Jangan buru-buru! Tunggu ada tanda-tanda harga berhenti turun dan mulai mantul."
-            tech_kondisi = "Harga lagi koreksi sehat (turun sementara uji ketahanan)."
-            tech_rekomendasi = "Momen pas buat cicil Beli bertahap dekat area Lantai 1 / Lantai 2."
-            
+            tech_hold = f"Pertimbangkan TP bertahap di Atap 1 (Rp {r1_idr:,.0f})."
+
         elif not is_bullish_1d and not is_bullish_4h:
+            # 2. PASAR TURUN KUAT (1D & 4H KOMPAK TURUN) -> Fokus SL
             smc_kondisi = "Pasar lagi lesu/rusak. Bandar masih cenderung jualan."
             smc_rekomendasi = "Jangan coba-coba melawan arus. Tahan diri dulu dari posisi Beli."
+            smc_hold = f"Pertimbangkan SL jika harga terus turun melewati Rp {s2_idr:,.0f}."
+
             tech_kondisi = "Tren TURUN dominan. Tekanan jual masih lumayan tinggi."
             tech_rekomendasi = "Wait & See (Nonton dulu). Hanya spekulasi beli kalau harga sudah murah banget."
-            
-        else: # 1D Bearish, 4H Bullish
+            tech_hold = f"Pertimbangkan SL jika harga menembus Lantai 2 (Rp {s2_idr:,.0f})."
+
+        elif is_bullish_1d and not is_bullish_4h:
+            # 3. CAMPURAN (1D NAIK, 4H TURUN) -> Koreksi Sehat
+            # SMC melihat tren besar NAIK -> arahkan ke TP saat mantul
+            # TECH melihat 4H TURUN -> arahkan ke SL jika koreksi kebablasan
+            smc_kondisi = "Tren besar masih NAIK, tapi jangka pendek lagi TURUN buat cari tenaga baru."
+            smc_rekomendasi = "Jangan buru-buru! Tunggu ada tanda-tanda harga berhenti turun dan mulai mantul."
+            smc_hold = f"Pertimbangkan TP di Atap 1 (Rp {r1_idr:,.0f}) setelah harga kembali mantul naik."
+
+            tech_kondisi = "Harga lagi koreksi sehat (turun sementara uji ketahanan)."
+            tech_rekomendasi = "Momen pas buat cicil Beli bertahap dekat area Lantai 1 / Lantai 2."
+            tech_hold = f"Pertimbangkan SL jika harga justru makin merosot di bawah Rp {s2_idr:,.0f}."
+
+        else: # not is_bullish_1d and is_bullish_4h
+            # 4. CAMPURAN (1D TURUN, 4H NAIK) -> Dead Cat Bounce / Bull Trap
+            # SMC menilai tren besar TURUN -> utamakan SL ketat
+            # TECH memanfaatkan 4H NAIK -> arahkan ke TP terdekat
             smc_kondisi = "Harga naik cuma buat 'napas' sebentar sebelum potensi lanjut turun lagi."
             smc_rekomendasi = "Waspada Jebakan Naik (Bull Trap)! Jangan tergiur beli di pucuk."
+            smc_hold = f"Pertimbangkan SL ketat jika harga berbalik turun melewati Rp {s1_idr:,.0f}."
+
             tech_kondisi = "Pantulan harga sementara di tengah tren turun besar."
             tech_rekomendasi = "Kalau punya barang, manfaatkan kenaikan mendekati Atap 1 buat Take Profit / Jualan."
+            tech_hold = f"Pertimbangkan TP di Atap 1 (Rp {r1_idr:,.0f}) sebelum tren balik turun."
 
-        # --- FORMATTING TEKS PARAGRAF AGAR PRESISI ---
+        # --- FORMATTING TEKS PARAGRAF PRESISI INDENTASI ---
         smc_k_formatted = rapihkan_teks("• Kondisi  : ", smc_kondisi)
         smc_r_formatted = rapihkan_teks("• Rekom    : ", smc_rekomendasi)
-        
+        smc_h_formatted = rapihkan_teks("• Hold     : ", smc_hold)
+
         tech_k_formatted = rapihkan_teks("• Kondisi  : ", tech_kondisi)
         tech_r_formatted = rapihkan_teks("• Rekom    : ", tech_rekomendasi)
+        tech_h_formatted = rapihkan_teks("• Hold     : ", tech_hold)
 
         # --- FORMAT PESAN TELEGRAM ---
         bot = Bot(token=TOKEN)
@@ -165,10 +187,12 @@ def run_analysis():
             f"📋 PERSPEKTIF BANDAR (SMC)\n"
             f"{smc_k_formatted}\n"
             f"{smc_r_formatted}\n"
+            f"{smc_h_formatted}\n"
             f"----------------------------------\n"
             f"📋 PERSPEKTIF TEKNIKAL (TECH)\n"
             f"{tech_k_formatted}\n"
             f"{tech_r_formatted}\n"
+            f"{tech_h_formatted}\n"
             f"```"
         )
         
