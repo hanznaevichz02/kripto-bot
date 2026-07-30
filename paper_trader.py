@@ -28,7 +28,7 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 VOL_MULTIPLIER_TECH = 2.0  # Acuan Bot TECH
 VOL_MULTIPLIER_SMC = 1.5  # Acuan Bot SMC
-MIN_SCORE_ENTRY = 50  # Batas minimal skor kelayakan (0 - 100)
+MIN_SCORE_ENTRY = 40  # Batas minimal skor kelayakan (0 - 100)
 
 INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE = "paper_trading_hybrid.json"
