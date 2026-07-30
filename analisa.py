@@ -320,7 +320,22 @@ async def main_async():
         else:
             fvg_active, fvg_teks_status = False, "Tidak Ada / Sudah Termitigasi ❌"
 
+        # --- HITUNG SKOR SMC & PENYESUAIAN FASE MOMENTUM ---
         skor_smc, breakdown_skor = hitung_skor_smc(choch, bos, mitigation, fvg_active, rrr_4h, vol_spike)
+        
+        fase_bonus = {
+            "NAIK KOKOH 🟢": 5, 
+            "REBOUND ↗️": -5,
+            "TURUN 🔴": 0, 
+            "KOREKSI ↘️": 0, 
+            "SIDEWAYS ⚪": -10,
+        }
+        bonus_nilai = fase_bonus.get(tren_4h_teks, 0)
+        if bonus_nilai != 0:
+            skor_smc = max(0, min(skor_smc + bonus_nilai, 100))
+            tanda = "+" if bonus_nilai > 0 else ""
+            breakdown_skor.append(f"• Penyesuaian Fase ({tanda}{bonus_nilai})")
+
         label_skor = "🔥 HIGH" if skor_smc >= 80 else ("🎯 POTENSIAL" if skor_smc >= 60 else "⚠️ STANDAR")
 
         peringatan_dini = f"\n⏳ *Catatan:* Candle 1H baru berjalan {waktu_1h} menit — sinyal 1H masih bisa berubah.\n" if candle_1h_dini else ""
@@ -334,16 +349,16 @@ async def main_async():
         smc_1d_r = "Bagus untuk posisi Swing (Spot)." if is_bullish_1d else "Hindari all-in. Cicil beli bertahap (DCA) lebih aman di spot."
 
         # Pemformatan
-        smc_1h_k_fmt  = rapihkan_teks("• Kondisi   : ", smc_1h_k)
-        smc_1h_r_fmt  = rapihkan_teks("• Rekom     : ", smc_1h_r)
+        smc_1h_k_fmt  = rapihkan_teks("• Kondisi    : ", smc_1h_k)
+        smc_1h_r_fmt  = rapihkan_teks("• Rekom      : ", smc_1h_r)
         smc_1h_sl_fmt = rapihkan_teks("• Target SL : ", f"Rp {sl_1h_idr:,.0f}")
         smc_1h_tp_fmt = rapihkan_teks("• Target TP : ", f"Rp {tp_1h_idr:,.0f} (RRR 1:{rrr_1h:.2f})")
-        smc_4h_k_fmt  = rapihkan_teks("• Kondisi   : ", smc_4h_k)
-        smc_4h_r_fmt  = rapihkan_teks("• Rekom     : ", smc_4h_r)
+        smc_4h_k_fmt  = rapihkan_teks("• Kondisi    : ", smc_4h_k)
+        smc_4h_r_fmt  = rapihkan_teks("• Rekom      : ", smc_4h_r)
         smc_4h_sl_fmt = rapihkan_teks("• Target SL : ", f"Rp {sl_4h_idr:,.0f}")
         smc_4h_tp_fmt = rapihkan_teks("• Target TP : ", f"Rp {tp_4h_idr:,.0f} (RRR 1:{rrr_4h:.2f})")
-        smc_1d_k_fmt  = rapihkan_teks("• Kondisi   : ", smc_1d_k)
-        smc_1d_r_fmt  = rapihkan_teks("• Rekom     : ", smc_1d_r)
+        smc_1d_k_fmt  = rapihkan_teks("• Kondisi    : ", smc_1d_k)
+        smc_1d_r_fmt  = rapihkan_teks("• Rekom      : ", smc_1d_r)
         smc_1d_sl_fmt = rapihkan_teks("• Target SL : ", f"Rp {sl_1d_idr:,.0f}")
         smc_1d_tp_fmt = rapihkan_teks("• Target TP : ", f"Rp {tp_1d_idr:,.0f}")
 
