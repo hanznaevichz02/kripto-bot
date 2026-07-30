@@ -1,7 +1,7 @@
 """
 ========================================================
     KRIPTO BOT — Smart Money Edition (Main Scanner)
-    Versi: 3.9.4 (Scalping/Swing, Min RRR 1.2x & Fee/Tax Guard 1.3%)
+    Versi: 4.0 (Integrasi Informan Pribadi & Radar)
     SPOT MARKET
 ========================================================
 """
@@ -53,22 +53,14 @@ ASSET_LIST: List[str] = [
 
 # Mapping Simbol Spot ke Kucoin Futures (Lengkap 16 Koin)
 FUTURES_MAP: Dict[str, str] = {
-    'BTC/USDT': 'XBTUSDTM',
-    'ETH/USDT': 'ETHUSDTM',
-    'SOL/USDT': 'SOLUSDTM',
-    'BNB/USDT': 'BNBUSDTM',
-    'SUI/USDT': 'SUIUSDTM',
-    'XRP/USDT': 'XRPUSDTM',
-    'LINK/USDT': 'LINKUSDTM',
-    'AAVE/USDT': 'AAVEUSDTM',
-    'DOT/USDT':  'DOTUSDTM',
-    'ONDO/USDT': 'ONDOUSDTM',
-    'ARB/USDT':  'ARBUSDTM',
-    'NEAR/USDT': 'NEARUSDTM',
-    'ZEC/USDT':  'ZECUSDTM',
-    'TAO/USDT':  'TAOUSDTM',
-    'AVAX/USDT': 'AVAXUSDTM',
-    'ADA/USDT':  'ADAUSDTM'
+    'BTC/USDT': 'XBTUSDTM',  'ETH/USDT': 'ETHUSDTM',
+    'SOL/USDT': 'SOLUSDTM',  'BNB/USDT': 'BNBUSDTM',
+    'SUI/USDT': 'SUIUSDTM',  'XRP/USDT': 'XRPUSDTM',
+    'LINK/USDT': 'LINKUSDTM', 'AAVE/USDT': 'AAVEUSDTM',
+    'DOT/USDT':  'DOTUSDTM',  'ONDO/USDT': 'ONDOUSDTM',
+    'ARB/USDT':  'ARBUSDTM',  'NEAR/USDT': 'NEARUSDTM',
+    'ZEC/USDT':  'ZECUSDTM',  'TAO/USDT':  'TAOUSDTM',
+    'AVAX/USDT': 'AVAXUSDTM', 'ADA/USDT':  'ADAUSDTM'
 }
 
 JAM_LAPORAN = {9, 14, 20}
@@ -118,7 +110,7 @@ def format_rp(nilai: float) -> str:
     return f"Rp {nilai:,.0f}"
 
 # ============================================================
-# KALKULASI INDIKATOR, SMC, FVG & SUDUT TREN (TF 1H)
+# KALKULASI INDIKATOR & SMC
 # ============================================================
 
 def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
@@ -134,15 +126,12 @@ def hitung_volume_delta(df: pd.DataFrame) -> pd.Series:
     return df['volume'] * ((df['close'] - df['open']) / hl)
 
 def hitung_sudut(df: pd.DataFrame, period: int = 10) -> float:
-    """Menghitung sudut kemiringan regresi linear harga (dalam derajat) pada TF 1H"""
-    if len(df) < period:
-        return 0.0
+    if len(df) < period: return 0.0
     y = df['close'].iloc[-period:].values
     x = np.arange(period)
     y_norm = (y - y[0]) / (y[0] + 1e-9) * 100
     slope, _ = np.polyfit(x, y_norm, 1)
-    angle = math.degrees(math.atan(slope))
-    return float(angle)
+    return float(math.degrees(math.atan(slope)))
 
 def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> Dict[str, float]:
     swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
@@ -152,14 +141,11 @@ def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> Dict[str, float]:
 def deteksi_order_block(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]]]:
     result = {'bullish_ob': None, 'bearish_ob': None}
     avg_body = (df['close'] - df['open']).abs().rolling(10).median()
-
     for i in range(len(df) - 3, max(len(df) - 15, 0), -1):
         row = df.iloc[i]
         nxt = df.iloc[i + 1]
         body = abs(row['close'] - row['open'])
-
-        if body < avg_body.iloc[i] * 1.2:
-            continue
+        if body < avg_body.iloc[i] * 1.2: continue
 
         if row['close'] < row['open'] and nxt['close'] > row['high']:
             if df.iloc[i+2:]['close'].min() >= row['low']:
@@ -170,21 +156,17 @@ def deteksi_order_block(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]
             if df.iloc[i+2:]['close'].max() <= row['high']:
                 result['bearish_ob'] = {'high': float(row['high']), 'low': float(row['low'])}
                 break
-
     return result
 
 def deteksi_fvg(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]]]:
     result = {'bullish_fvg': None, 'bearish_fvg': None}
-    if len(df) < 5:
-        return result
-        
+    if len(df) < 5: return result
     c1, c2, c3 = df.iloc[-3], df.iloc[-2], df.iloc[-1]
     
     if c3['low'] > c1['high']:
         result['bullish_fvg'] = {'high': float(c3['low']), 'low': float(c1['high'])}
     elif c3['high'] < c1['low']:
         result['bearish_fvg'] = {'high': float(c1['low']), 'low': float(c3['high'])}
-        
     return result
 
 # ============================================================
@@ -200,11 +182,27 @@ def analisa(
     is_weekend: bool,
 ) -> Optional[Dict[str, Any]]:
 
-    if len(df_1h) < 50 or len(df_4h) < 20:
-        return None
+    if len(df_1h) < 50 or len(df_4h) < 20: return None
 
+    # Tambahan: EMA & Fase 4H untuk Informan
+    df_4h['ema9'] = df_4h['close'].ewm(span=9, adjust=False).mean()
+    df_4h['ema21'] = df_4h['close'].ewm(span=21, adjust=False).mean()
     df_4h['ema50'] = df_4h['close'].ewm(span=50, adjust=False).mean()
-    trend_4h_bull = df_4h['close'].iloc[-1] > df_4h['ema50'].iloc[-1]
+    
+    c_4h, e9, e21 = df_4h['close'].iloc[-1], df_4h['ema9'].iloc[-1], df_4h['ema21'].iloc[-1]
+    trend_4h_bull = c_4h > df_4h['ema50'].iloc[-1]
+
+    if c_4h > e9 and e9 > e21: fase_4h = "NAIK KOKOH 🟢"
+    elif c_4h > e9 and e9 <= e21: fase_4h = "REBOUND ↗️"
+    elif c_4h < e9 and e9 < e21: fase_4h = "TURUN 🔴"
+    elif c_4h < e9 and e9 >= e21: fase_4h = "KOREKSI ↘️"
+    else: fase_4h = "SIDEWAYS ⚪"
+
+    # Tambahan: RSI 4H untuk Informan
+    delta_4h = df_4h['close'].diff()
+    up, down = delta_4h.clip(lower=0), -1 * delta_4h.clip(upper=0)
+    rs = (up.ewm(com=13, adjust=False).mean()) / (down.ewm(com=13, adjust=False).mean())
+    rsi_4h = float((100 - (100 / (1 + rs))).iloc[-1])
 
     c, p = df_1h.iloc[-2], df_1h.iloc[-3]
     latest_c = df_1h.iloc[-1]
@@ -256,13 +254,11 @@ def analisa(
 
     sl_buy = swing_low_idr - (0.5 * atr_idr)
     tp_buy = swing_high_idr if swing_high_idr > harga_idr * 1.015 else harga_idr + (3.5 * atr_idr)
-    if sl_buy >= harga_idr * 0.985:
-        sl_buy = harga_idr - (1.8 * atr_idr)
+    if sl_buy >= harga_idr * 0.985: sl_buy = harga_idr - (1.8 * atr_idr)
 
     sl_sell = swing_high_idr + (0.5 * atr_idr)
     tp_sell = swing_low_idr if swing_low_idr < harga_idr * 0.985 else harga_idr - (3.5 * atr_idr)
-    if sl_sell <= harga_idr * 1.015:
-        sl_sell = harga_idr + (1.8 * atr_idr)
+    if sl_sell <= harga_idr * 1.015: sl_sell = harga_idr + (1.8 * atr_idr)
 
     risk_buy = max(harga_idr - sl_buy, 1.0)
     reward_buy = max(tp_buy - harga_idr, 0.0)
@@ -282,41 +278,34 @@ def analisa(
         'harga': harga_idr, 'vol_ratio': vol_ratio,
         'cvd_delta': cvd_delta, 'cvd_naik': cvd_naik,
         'trend_4h': 'BULLISH' if trend_4h_bull else 'BEARISH',
+        'fase_4h': fase_4h, 'rsi_4h': rsi_4h,
         'funding_rate': funding_rate, 'fear_greed': fear_greed,
         'is_weekend': is_weekend, 'vol_ultra': vol_ultra,
         'sl_buy': sl_buy, 'tp_buy': tp_buy,
         'sl_sell': sl_sell, 'tp_sell': tp_sell,
-        'rrr': rrr_buy, 
-        'profit_pct': profit_pct,
+        'rrr': rrr_buy, 'profit_pct': profit_pct,
         'high_price': latest_c['high'] * usd_idr, 
         'low_price': latest_c['low'] * usd_idr,
-        'skor': skor_final, 
-        'sudut': sudut_tren,
+        'skor': skor_final, 'sudut': sudut_tren,
     }
 
     strength = '🔥🔥🔥' if vol_ultra else '🔥🔥'
 
-    if bull_sweep:
-        return {**base, 'tipe': 'BULL_SWEEP', 'aksi': '🟢 BELI / ENTRY DISKON (Anti-Fake Sweep + FVG)', 'strength': strength}
-    if bear_sweep:
-        return {**base, 'tipe': 'BEAR_SWEEP', 'aksi': '🔴 JUAL / TAKE PROFIT (Awas Trap)', 'strength': strength}
-    if dekat_bull_ob and vol_spike and ada_bullish_fvg:
-        return {**base, 'tipe': 'BULL_OB', 'aksi': '🟢 BELI (Antri Limit di Demand + FVG)', 'strength': '🔥🔥'}
-    if dekat_bear_ob and vol_spike:
-        return {**base, 'tipe': 'BEAR_OB', 'aksi': '⏳ WAIT & SEE / CASH OUT', 'strength': '🔥🔥'}
+    if bull_sweep: return {**base, 'tipe': 'BULL_SWEEP', 'aksi': '🟢 BELI / ENTRY DISKON (Anti-Fake Sweep + FVG)', 'strength': strength}
+    if bear_sweep: return {**base, 'tipe': 'BEAR_SWEEP', 'aksi': '🔴 JUAL / TAKE PROFIT (Awas Trap)', 'strength': strength}
+    if dekat_bull_ob and vol_spike and ada_bullish_fvg: return {**base, 'tipe': 'BULL_OB', 'aksi': '🟢 BELI (Antri Limit di Demand + FVG)', 'strength': '🔥🔥'}
+    if dekat_bear_ob and vol_spike: return {**base, 'tipe': 'BEAR_OB', 'aksi': '⏳ WAIT & SEE / CASH OUT', 'strength': '🔥🔥'}
     if is_absorption:
         aksi = '🟢 CICIL BELI (DCA Santai)' if c['close'] >= c['open'] else '🔴 AMANKAN CASH / SELL'
         tipe = 'AKUMULASI' if c['close'] >= c['open'] else 'DISTRIBUSI'
         return {**base, 'tipe': tipe, 'aksi': aksi, 'strength': '🔥'}
-    if bull_breakout:
-        return {**base, 'tipe': 'BULL_BREAKOUT', 'aksi': '🟢 FOLLOW TREND (Breakout + FVG)', 'strength': strength}
-    if bear_breakout:
-        return {**base, 'tipe': 'BEAR_BREAKOUT', 'aksi': '⏳ TUNGGU DI BAWAH (Wait Drop)', 'strength': strength}
+    if bull_breakout: return {**base, 'tipe': 'BULL_BREAKOUT', 'aksi': '🟢 FOLLOW TREND (Breakout + FVG)', 'strength': strength}
+    if bear_breakout: return {**base, 'tipe': 'BEAR_BREAKOUT', 'aksi': '⏳ TUNGGU DI BAWAH (Wait Drop)', 'strength': strength}
 
     return None
 
 # ============================================================
-# TELEGRAM FORMATTER & SENDER
+# TELEGRAM FORMATTERS
 # ============================================================
 
 def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
@@ -324,14 +313,10 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
     judul, ket = DESKRIPSI.get(tipe, (tipe, ""))
     
     fr = s['funding_rate']
-    if fr is None:
-        fr_str = "N/A"
-    elif fr > 0.0005:
-        fr_str = f"+{fr*100:.4f}% (Rawan Dump)"
-    elif fr < -0.0005:
-        fr_str = f"{fr*100:.4f}% (Squeeze)"
-    else:
-        fr_str = f"{fr*100:+.4f}% (Normal)"
+    if fr is None: fr_str = "N/A"
+    elif fr > 0.0005: fr_str = f"+{fr*100:.4f}% (Rawan Dump)"
+    elif fr < -0.0005: fr_str = f"{fr*100:.4f}% (Squeeze)"
+    else: fr_str = f"{fr*100:+.4f}% (Normal)"
 
     is_bullish = tipe in BULLISH_SIGNAL_TYPES
     if is_bullish:
@@ -349,9 +334,10 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
         f"<code>"
         f"[ 1. SIGNAL DETECTION ]\n"
         f"  • Trigger : {judul}\n"
-        f"  • Tren 4H : {s['trend_4h']}\n"
+        f"  • Tren 4H : {s['trend_4h']} ({s['fase_4h']})\n"
         f"  • Skor    : {s.get('skor', 0.0)} / 100\n"
         f"  • Sudut   : {s.get('sudut', 0.0):+.2f}°\n"
+        f"  • RSI 4H  : {s.get('rsi_4h', 0.0):.1f}\n"
         f"  • Harga   : {harga}\n"
         f"------------------------------\n"
         f"[ 2. MARKET METRICS ]\n"
@@ -363,12 +349,33 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
         f"[ 3. RISK MANAGEMENT ]\n"
         f"  • {rm_label_1} : {rm_val_1}\n"
         f"  • {rm_label_2} : {rm_val_2}\n"
-        f"  • RRR Ratio : {s.get('rrr', 0.0)::.2f}x\n"
-        f"  • Target %  : {s.get('profit_pct', 0.0):.2f}% (Min {MIN_PROFIT_PCT_THRESHOLD}%)\n"
+        f"  • RRR Ratio : {s.get('rrr', 0.0):.2f}x\n"
+        f"  • Target %  : {s.get('profit_pct', 0.0):.2f}%\n"
         f"</code>\n"
         f"🎯 <b>ACTION PLAN :</b> {s['aksi']}\n"
         f"💡 <b>Insight    :</b> {ket}"
     )
+
+def format_informan_radar(kumpulan_semua: List[dict], best_symbol: str) -> str:
+    """Format rekap koin-koin runner-up yang terdeteksi bullish untuk dikirim ke user"""
+    radar = [s for s in kumpulan_semua if s['symbol'] != best_symbol and s['tipe'] in BULLISH_SIGNAL_TYPES and s.get('skor', 0) >= 60]
+    
+    if not radar: return ""
+        
+    radar.sort(key=lambda x: x.get('skor', 0), reverse=True)
+    
+    lines = ["🕵️‍♂️ <b>RADAR INFORMAN PRIBADI</b>", "<i>Koin potensial lain yang terpantau:</i>\n"]
+    for s in radar[:5]: # Tampilkan max 5 koin terbaik lainnya
+        lines.append(f"🔹 <b>{s['symbol']}</b> | Skor: {s['skor']}")
+        lines.append(f"  ├ Fase  : {s['fase_4h']} | RSI: {s.get('rsi_4h', 0):.1f}")
+        lines.append(f"  ├ Setup : {s['tipe'].replace('_', ' ')}")
+        if not s.get('is_tradeable'):
+            lines.append(f"  └ ⚠️ <i>Skip Bot Trading (RRR {s['rrr']}x / Profit {s.get('profit_pct',0):.1f}%)</i>")
+        else:
+            lines.append(f"  └ ✅ <i>Lolos Syarat Bot, kalah peringkat utama.</i>")
+        lines.append("") # Spasi antar koin
+    
+    return "\n".join(lines)
 
 # ============================================================
 # LAPORAN PORTOFOLIO
@@ -442,16 +449,9 @@ async def kirim_laporan(bot: Bot, exchange: ccxt.Exchange, usd_idr: float, fear_
 # ============================================================
 # WORKER SCANNER PER ASSET
 # ============================================================
-
 async def scan_asset(
-    symbol: str,
-    exchange: ccxt.Exchange,
-    exchange_futures: ccxt.Exchange,
-    usd_idr: float,
-    fear_greed: dict,
-    is_weekend: bool,
-    bot: Bot,
-    semaphore: asyncio.Semaphore
+    symbol: str, exchange: ccxt.Exchange, exchange_futures: ccxt.Exchange,
+    usd_idr: float, fear_greed: dict, is_weekend: bool, bot: Bot, semaphore: asyncio.Semaphore
 ) -> Optional[Dict[str, Any]]:
 
     async with semaphore:
@@ -468,38 +468,29 @@ async def scan_asset(
 
             hasil = analisa(df_1h, df_4h, usd_idr, funding_rate, fear_greed, is_weekend)
 
-            if not hasil:
-                logger.info(f"— {symbol}: tidak ada sinyal")
-                return None
+            if not hasil: return None
+            hasil['symbol'] = symbol
 
             is_bullish = hasil['tipe'] in BULLISH_SIGNAL_TYPES
             is_porto = symbol in PORTFOLIO
 
             if is_bullish:
-                # Validasi Filter Scalping: RRR minimal 1.2x DAN Target Profit minimal 1.3% (Fee & Tax Guard)
+                # Cek kelayakan untuk Bot Trading (Otomatis)
+                hasil['is_tradeable'] = True
                 if hasil['rrr'] < MIN_RRR_THRESHOLD or hasil.get('profit_pct', 0.0) < MIN_PROFIT_PCT_THRESHOLD:
-                    logger.info(
-                        f"🚫 {symbol}: Sinyal {hasil['tipe']} diabaikan karena "
-                        f"RRR ({hasil['rrr']}x < {MIN_RRR_THRESHOLD}x) atau "
-                        f"Profit Target ({hasil.get('profit_pct', 0.0)}% < {MIN_PROFIT_PCT_THRESHOLD}%)."
-                    )
-                    return None
-
-                hasil['symbol'] = symbol
-                logger.info(
-                    f"🎯 Kandidat BELI: {symbol} ({hasil['tipe']}) | "
-                    f"Skor: {hasil['skor']} | Sudut: {hasil['sudut']:.2f}° | "
-                    f"RRR: {hasil['rrr']:.2f}x | Profit: {hasil['profit_pct']:.2f}% (Lolos Filter)"
-                )
+                    hasil['is_tradeable'] = False
+                    logger.info(f"👀 {symbol}: Masuk Radar Informan, tapi Skip Bot Trade (RRR/Profit kurang).")
+                
+                # Kita TETAP return hasil (berbeda dengan kode lama) agar masuk ke Radar Informan
                 return hasil
 
             elif is_porto:
+                # Warning portofolio jika ada sinyal Jual/Bearish
                 logger.warning(f"🚨 WARNING PORTOFOLIO: {symbol} terdeteksi sinyal JUAL/DUMP ({hasil['tipe']})!")
                 pesan_warning = format_pesan(symbol, hasil, is_porto_alert=True)
                 await bot.send_message(chat_id=CHAT_ID, text=pesan_warning, parse_mode='HTML')
                 return None
             else:
-                logger.info(f"⚠️ {symbol}: Sinyal {hasil['tipe']} (Jual/Bearish) diabaikan (Bukan Porto).")
                 return None
 
         except Exception as e:
@@ -509,11 +500,8 @@ async def scan_asset(
 # ============================================================
 # MAIN EXECUTOR
 # ============================================================
-
 async def main():
-    if not TOKEN or not CHAT_ID:
-        logger.error("TELEGRAM_TOKEN atau TELEGRAM_CHAT_ID belum di-set di environment!")
-        return
+    if not TOKEN or not CHAT_ID: return
 
     exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30_000})
     exchange_futures = ccxt.kucoinfutures({'enableRateLimit': True, 'timeout': 30_000})
@@ -521,7 +509,6 @@ async def main():
 
     try:
         await exchange.load_markets()
-
         async with httpx.AsyncClient() as client:
             usd_idr_task = get_usd_idr(client)
             fear_greed_task = get_fear_greed(client)
@@ -530,35 +517,34 @@ async def main():
         now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
         is_weekend = now_wib.weekday() in [5, 6]
 
-        logger.info(f"[{now_wib.strftime('%H:%M WIB')}] USD/IDR={usd_idr:,.0f} | F&G={fear_greed['value']} ({fear_greed['label']}) | Weekend={is_weekend}")
-
         semaphore = asyncio.Semaphore(5)
-
-        tasks = [
-            scan_asset(symbol, exchange, exchange_futures, usd_idr, fear_greed, is_weekend, bot, semaphore)
-            for symbol in ASSET_LIST
-        ]
-
+        tasks = [scan_asset(s, exchange, exchange_futures, usd_idr, fear_greed, is_weekend, bot, semaphore) for s in ASSET_LIST]
+        
         hasil_scan = await asyncio.gather(*tasks)
-        kumpulan_sinyal = [s for s in hasil_scan if s is not None]
+        semua_sinyal_bullish = [s for s in hasil_scan if s is not None]
 
+        # 1. PISAHKAN UNTUK BOT TRADING (Sinyal Utama)
+        trade_candidates = [s for s in semua_sinyal_bullish if s.get('is_tradeable', False)]
         best_signal = None
-        if kumpulan_sinyal:
-            kumpulan_sinyal.sort(key=lambda x: (abs(x.get('sudut', 0.0)), x.get('skor', 0.0), x.get('rrr', 0.0)), reverse=True)
-            best_signal = kumpulan_sinyal[0]
+        
+        if trade_candidates:
+            trade_candidates.sort(key=lambda x: (abs(x.get('sudut', 0.0)), x.get('skor', 0.0), x.get('rrr', 0.0)), reverse=True)
+            best_signal = trade_candidates[0]
 
-            logger.info(f"📢 Mengirim 1 sinyal BELI teratas dengan sudut paling ekstrim dari {len(kumpulan_sinyal)} kandidat...")
-
+            logger.info(f"📢 Mengirim Sinyal Utama: {best_signal['symbol']} ...")
             pesan = format_pesan(best_signal['symbol'], best_signal)
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
-            logger.info(
-                f"✅ Terkirim: {best_signal['symbol']} "
-                f"(Sudut: {best_signal['sudut']:.2f}° | Skor: {best_signal['skor']} | "
-                f"RRR: {best_signal['rrr']:.2f}x | Profit: {best_signal['profit_pct']:.2f}%)"
-            )
         else:
-            logger.info("— Tidak ada sinyal BELI yang valid (memenuhi syarat RRR >= 1.2x & Profit >= 1.3%) pada siklus ini.")
+            logger.info("— Tidak ada sinyal BELI yang lolos filter Bot Trading siklus ini.")
 
+        # 2. EKSEKUSI RADAR INFORMAN (Laporan Koin Potensial Lainnya)
+        best_sym = best_signal['symbol'] if best_signal else ""
+        radar_msg = format_informan_radar(semua_sinyal_bullish, best_sym)
+        if radar_msg:
+            await bot.send_message(chat_id=CHAT_ID, text=radar_msg, parse_mode='HTML')
+            logger.info("📢 Radar Informan Pribadi berhasil dikirim.")
+
+        # 3. EXPORT KE PAPER TRADER
         signal_export = {
             "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
             "symbol": best_signal['symbol'] if best_signal else "NONE",
@@ -576,23 +562,18 @@ async def main():
 
         with open("signal_main.json", "w") as f:
             json.dump(signal_export, f, indent=4)
-        logger.info("📄 File signal_main.json berhasil diperbarui.")
 
+        # 4. LAPORAN PORTOFOLIO REGULER
         if now_wib.hour in JAM_LAPORAN and now_wib.minute < 30:
             await kirim_laporan(bot, exchange, usd_idr, fear_greed)
-            logger.info("📊 Laporan portofolio terkirim")
 
     except Exception as e:
         logger.error(f"Error utama pada executor main(): {e}")
     finally:
-        try:
-            await exchange.close()
-        except Exception:
-            pass
-        try:
-            await exchange_futures.close()
-        except Exception:
-            pass
+        try: await exchange.close()
+        except: pass
+        try: await exchange_futures.close()
+        except: pass
 
 if __name__ == '__main__':
     asyncio.run(main())
