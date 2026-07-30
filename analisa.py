@@ -329,8 +329,6 @@ async def main_async():
 
         label_skor = "🔥 HIGH" if skor_smc >= 80 else ("🎯 POTENSIAL" if skor_smc >= 60 else "⚠️ STANDAR")
 
-        peringatan_dini = f"\n⏳ *Catatan:* Candle 1H baru berjalan {waktu_1h} menit — sinyal 1H masih bisa berubah.\n" if candle_1h_dini else ""
-
         # --- TEKS PERSPEKTIF ---
         smc_1h_k = f"Struktur mikro 1H {tren_1h_teks}, momentum scalping aktif." if is_bullish_1h else f"Tekanan jual 1H ({tren_1h_teks}) mendominasi area mikro."
         smc_1h_r = "Potensi dorongan cepat ke resistance terdekat." if is_bullish_1h else "Waspada koreksi cepat, utamakan scalping pendek."
