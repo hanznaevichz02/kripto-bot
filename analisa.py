@@ -190,15 +190,6 @@ async def main_async():
 
         harga_sekarang = float(df_1h['close'].iloc[-1] * usd_idr)
 
-        # --- CANDLE RUNNING ---
-        run_1h, waktu_1h = is_candle_running('1h')
-        run_4h, waktu_4h = is_candle_running('4h')
-        run_1d, waktu_1d = is_candle_running('1d')
-        info_running = (f"• Candle 1H : berjalan {waktu_1h} mnt\n"
-                        f"• Candle 4H : berjalan {waktu_4h} mnt\n"
-                        f"• Candle 1D : berjalan {waktu_1d} mnt")
-        candle_1h_dini = waktu_1h < 15
-
         # --- ATR & VOLUME (Menggunakan True Range) ---
         df_1h['atr'] = hitung_true_range_atr(df_1h, 14)
         df_4h['atr'] = hitung_true_range_atr(df_4h, 14)
@@ -387,8 +378,6 @@ async def main_async():
             f"• Divergence: {divergence_teks}\n"
             f"• Setup     : {skor_smc}/100 ({label_skor})\n"
             f"• RRR(4H)   : 1: {rrr_4h:.2f}\n"
-            f"----------------------------------\n"
-            f"{info_running}\n"
             f"----------------------------------\n"
             f"• Tren (1H)   : {tren_1h_teks}\n"
             f"• Tren (4H)   : {tren_4h_teks}\n"
