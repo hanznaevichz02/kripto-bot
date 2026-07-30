@@ -1,6 +1,6 @@
 """
 ========================================================
-    KRIPTO BOT — Analisa Simpel, Dinamis & Presisi Layout (v5.3 Live Trigger)
+    KRIPTO BOT — Analisa Simpel, Dinamis & Presisi Layout (v5.4 Live Trigger + 1H SMC)
     Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, FVG, Funding Rate & Real-Time Snapshot
 ========================================================
 """
@@ -149,8 +149,15 @@ def run_analysis():
         
         atr_idr = float(df_1h['atr'].iloc[-1] * usd_idr)
 
+        # --- PIVOT POINTS 1H ---
+        curr_1h_p = -1
+        high_1h_p, low_1h_p, close_1h_p = df_1h['high'].iloc[curr_1h_p], df_1h['low'].iloc[curr_1h_p], df_1h['close'].iloc[curr_1h_p]
+        pivot_1h = (high_1h_p + low_1h_p + close_1h_p) / 3
+        r1_1h_idr = float(((2 * pivot_1h) - low_1h_p) * usd_idr)
+        s1_1h_idr = float(((2 * pivot_1h) - high_1h_p) * usd_idr)
+
         # --- PIVOT POINTS 4H ---
-        curr_4h = -1 # Menggunakan candle aktif/berjalan
+        curr_4h = -1 
         high_4h, low_4h, close_4h = df_4h['high'].iloc[curr_4h], df_4h['low'].iloc[curr_4h], df_4h['close'].iloc[curr_4h]
         pivot_4h = (high_4h + low_4h + close_4h) / 3
         r1_4h_idr = float(((2 * pivot_4h) - low_4h) * usd_idr)
@@ -168,18 +175,30 @@ def run_analysis():
         s2_1d_idr = float((pivot_1d - (high_1d - low_1d)) * usd_idr)
 
         # --- INDIKATOR TREN (EMA 9 & 21 + Live Price Check) ---
+        df_1h['ema9'] = df_1h['close'].ewm(span=9, adjust=False).mean()
+        df_1h['ema21'] = df_1h['close'].ewm(span=21, adjust=False).mean()
         df_4h['ema9'] = df_4h['close'].ewm(span=9, adjust=False).mean()
         df_4h['ema21'] = df_4h['close'].ewm(span=21, adjust=False).mean()
         df_1d['ema9'] = df_1d['close'].ewm(span=9, adjust=False).mean()
         df_1d['ema21'] = df_1d['close'].ewm(span=21, adjust=False).mean()
 
+        is_bullish_1h = (df_1h['ema9'].iloc[-1] > df_1h['ema21'].iloc[-1]) or (df_1h['close'].iloc[-1] > df_1h['ema9'].iloc[-1])
         is_bullish_4h = (df_4h['ema9'].iloc[-1] > df_4h['ema21'].iloc[-1]) or (df_4h['close'].iloc[-1] > df_4h['ema9'].iloc[-1])
         is_bullish_1d = (df_1d['ema9'].iloc[-1] > df_1d['ema21'].iloc[-1]) or (df_1d['close'].iloc[-1] > df_1d['ema9'].iloc[-1])
 
+        tren_1h_teks = "NAIK 🟢" if is_bullish_1h else "TURUN 🔴"
         tren_4h_teks = "NAIK 🟢" if is_bullish_4h else "TURUN 🔴"
         tren_1d_teks = "NAIK 🟢" if is_bullish_1d else "TURUN 🔴"
 
-        # Tampilan Level Presisi
+        # Tampilan Level & SL/TP Presisi 1H
+        if is_bullish_1h:
+            sl_1h_idr = s1_1h_idr - (0.3 * atr_idr)
+            tp_1h_idr = r1_1h_idr
+        else:
+            sl_1h_idr = r1_1h_idr + (0.3 * atr_idr)
+            tp_1h_idr = s1_1h_idr
+
+        # Tampilan Level & SL/TP Presisi 4H
         if is_bullish_4h:
             level_4h_teks = f"  Atap 1      : Rp {r1_4h_idr:,.0f}\n  Atap 2      : Rp {r2_4h_idr:,.0f}"
             sl_4h_idr = s1_4h_idr - (0.5 * atr_idr)
@@ -189,6 +208,7 @@ def run_analysis():
             sl_4h_idr = s2_4h_idr - (0.5 * atr_idr)
             tp_4h_idr = r1_4h_idr
 
+        # Tampilan Level & SL/TP Presisi 1D
         if is_bullish_1d:
             level_1d_teks = f"  Atap 1      : Rp {r1_1d_idr:,.0f}\n  Atap 2      : Rp {r2_1d_idr:,.0f}"
             sl_1d_idr = s1_1d_idr - (1.0 * atr_idr)
@@ -199,6 +219,10 @@ def run_analysis():
             tp_1d_idr = r1_1d_idr
 
         # --- HITUNG ESTIMASI RRR ---
+        risk_1h = abs(harga_sekarang - sl_1h_idr)
+        reward_1h = abs(tp_1h_idr - harga_sekarang)
+        rrr_1h = (reward_1h / risk_1h) if risk_1h > 0 else 0.0
+
         risk_4h = abs(harga_sekarang - sl_4h_idr)
         reward_4h = abs(tp_4h_idr - harga_sekarang)
         rrr_4h = (reward_4h / risk_4h) if risk_4h > 0 else 0.0
@@ -241,6 +265,14 @@ def run_analysis():
         skor_smc, breakdown_skor = hitung_skor_smc(choch, bos, mitigation, fvg_active, rrr_4h, vol_spike)
         label_skor = "🔥 HIGH" if skor_smc >= 80 else ("🎯 POTENSIAL" if skor_smc >= 60 else "⚠️ STANDAR")
 
+        # --- LOGIKA TEKS SMC 1H ---
+        if is_bullish_1h:
+            smc_1h_k = "Struktur mikro 1H Bullish, momentum scalping aktif."
+            smc_1h_r = "Potensi dorongan cepat ke resistance terdekat."
+        else:
+            smc_1h_k = "Tekanan jual 1H mendominasi area mikro."
+            smc_1h_r = "Waspada koreksi cepat, utamakan scalping pendek."
+
         # --- LOGIKA TEKS SMC 4H ---
         if is_bullish_4h:
             smc_4h_k = f"Tren 4H NAIK/Rebound. Live Price merespons area support."
@@ -258,6 +290,11 @@ def run_analysis():
             smc_1d_r = "Hindari hold terlalu lama. Utamakan quick trade saja."
 
         # --- FORMATTING PARAGRAF RAPI ---
+        smc_1h_k_fmt  = rapihkan_teks("• Kondisi   : ", smc_1h_k)
+        smc_1h_r_fmt  = rapihkan_teks("• Rekom     : ", smc_1h_r)
+        smc_1h_sl_fmt = rapihkan_teks("• Target SL : ", f"Rp {sl_1h_idr:,.0f}")
+        smc_1h_tp_fmt = rapihkan_teks("• Target TP : ", f"Rp {tp_1h_idr:,.0f} (RRR 1:{rrr_1h:.2f})")
+
         smc_4h_k_fmt  = rapihkan_teks("• Kondisi   : ", smc_4h_k)
         smc_4h_r_fmt  = rapihkan_teks("• Rekom     : ", smc_4h_r)
         smc_4h_sl_fmt = rapihkan_teks("• Target SL : ", f"Rp {sl_4h_idr:,.0f}")
@@ -281,12 +318,19 @@ def run_analysis():
             f"• Kondisi FVG : {fvg_teks_status}\n"
             f"• Kondisi RSI : {status_rsi}\n"
             f"• Skor Setup  : {skor_smc}/100 ({label_skor})\n"
-            f"• Est. RRR    : 1 : {rrr_4h:.2f}\n"
+            f"• Est. RRR(4H): 1 : {rrr_4h:.2f}\n"
             f"----------------------------------\n"
+            f"• Tren (1H)   : {tren_1h_teks}\n"
             f"• Tren (4H)   : {tren_4h_teks}\n"
             f"{level_4h_teks}\n"
             f"• Tren (1D)   : {tren_1d_teks}\n"
             f"{level_1d_teks}\n"
+            f"----------------------------------\n"
+            f"📋 PERSPEKTIF SMC 1H (SCALPING / MIKRO)\n"
+            f"{smc_1h_k_fmt}\n"
+            f"{smc_1h_r_fmt}\n"
+            f"{smc_1h_sl_fmt}\n"
+            f"{smc_1h_tp_fmt}\n"
             f"----------------------------------\n"
             f"📋 PERSPEKTIF SMC 4H (JANGKA PENDEK)\n"
             f"{smc_4h_k_fmt}\n"
