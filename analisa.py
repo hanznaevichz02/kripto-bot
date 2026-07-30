@@ -233,7 +233,7 @@ async def main_async():
             e21 = df['ema21'].iloc[-1]
             
             if c > e9 and e9 > e21:
-                return True, "NAIK KOKOH 🟢"
+                return True, "NAIK 🟢"
             elif c > e9 and e9 <= e21:
                 return True, "REBOUND ↗️" 
             elif c < e9 and e9 < e21:
@@ -283,9 +283,9 @@ async def main_async():
         if rsi_4h >= 70:
             status_rsi = f"Kekenyangan ({rsi_4h:.0f}) - Rawan Turun"
         elif rsi_4h <= 30:
-            status_rsi = f"Kebanting ({rsi_4h:.0f}) - Potensi Mantul"
+            status_rsi = f"Kelaparan ({rsi_4h:.0f}) - Potensi Mantul"
         else:
-            status_rsi = f"Wajar/Normal ({rsi_4h:.0f})"
+            status_rsi = f"Normal ({rsi_4h:.0f})"
 
         # --- DIVERGENCE RSI 4H ---
         price_hh = df_4h['close'].iloc[-1] > df_4h['close'].iloc[-11:-1].max()
@@ -314,9 +314,9 @@ async def main_async():
 
         fvg_type, fvg_min, fvg_max = cek_fvg(df_1h, usd_idr)
         if fvg_type == "Bullish":
-            fvg_active, fvg_teks_status = True, f"Bullish 🟢 (Rp {fvg_min:,.0f} - Rp {fvg_max:,.0f})"
+            fvg_active, fvg_teks_status = True, f"NAIK 🟢 (Rp {fvg_min:,.0f} - Rp {fvg_max:,.0f})"
         elif fvg_type == "Bearish":
-            fvg_active, fvg_teks_status = True, f"Bearish 🔴 (Rp {fvg_min:,.0f} - Rp {fvg_max:,.0f})"
+            fvg_active, fvg_teks_status = True, f"TURUN 🔴 (Rp {fvg_min:,.0f} - Rp {fvg_max:,.0f})"
         else:
             fvg_active, fvg_teks_status = False, "Tidak Ada / Sudah Termitigasi ❌"
 
@@ -380,6 +380,7 @@ async def main_async():
             f"🔍 [ANALISA SPOT] — {PAIR_NAME}\n"
             f"----------------------------------\n"
             f"• Harga       : Rp {harga_sekarang:,.0f}\n"
+            f"----------------------------------\n"
             f"• Funding*    : {status_fr}\n"
             f"• Kondisi FVG : {fvg_teks_status}\n"
             f"• Kondisi RSI : {status_rsi}\n"
