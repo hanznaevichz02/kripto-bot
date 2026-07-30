@@ -32,7 +32,7 @@ MIN_SCORE_ENTRY = 40  # Batas minimal skor kelayakan (0 - 100)
 
 INITIAL_CAPITAL_IDR = 1_000_000.0
 STATE_FILE = "paper_trading_hybrid.json"
-SIGNAL_FILE = "signal_agr.json"
+SIGNAL_FILE = "signal_trader.json"
 FEE_TAX_RATE = 0.013  # Fee + Pajak PMK 68 dipotong saat Sell/Exit (1.3%)
 
 ASSET_LIST = [
@@ -567,7 +567,7 @@ async def main():
       "all_scanned": scanned_summary,
   }
   save_signal(signal_payload)
-  logging.info("📄 File signal_agr.json berhasil diperbarui.")
+  logging.info("📄 File signal_trader.json berhasil diperbarui.")
 
   if state.get("active_position") is not None:
     logging.info(
