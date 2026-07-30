@@ -236,7 +236,9 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
         ema21_prev     = df_1h['ema21'].iloc[prev_idx]
 
         golden_cross = bool((ema9_prev < ema21_prev) and (ema9_now > ema21_now) and is_spike_vol_tech and is_sudut_tajam)
-        death_cross  = bool((ema9_prev > ema21_prev) and (ema9_now < ema21_now))
+        
+        # Death Cross dimatikan total sesuai instruksi (tidak dipakai untuk exit)
+        death_cross  = False
 
         tren_bullish    = ema9_now > ema21_now
         sentuh_ema21    = c['low'] <= (ema21_now * 1.002)
@@ -284,8 +286,8 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
             "sl_price": float(sl_bullish),
             "tp_price": float(tp_bullish),
             "is_entry": (tech_entry_signal or bull_sweep_smc),
-            "is_emergency_exit": (death_cross or bear_sweep_smc),
-            "emerg_reason": "Death Cross" if death_cross else ("SMC Bear Sweep" if bear_sweep_smc else ""),
+            "is_emergency_exit": bear_sweep_smc, # Death cross dimatikan, emergency exit hanya menyisakan SMC Bear Sweep
+            "emerg_reason": "SMC Bear Sweep" if bear_sweep_smc else "",
             "trigger_str": trigger_str,
             "score": score,
             "rrr": rrr,
