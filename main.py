@@ -532,7 +532,7 @@ async def main():
         else:
             logger.info("— Tidak ada sinyal BELI yang valid (memenuhi syarat RRR >= 1.5x) pada siklus ini.")
 
-        # --- EXPORT FILE STATE SINYAL (signal_smc.json) ---
+        # --- EXPORT FILE STATE SINYAL (signal_main.json) ---
         signal_export = {
             "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
             "symbol": best_signal['symbol'] if best_signal else "NONE",
@@ -546,9 +546,9 @@ async def main():
             "rrr": best_signal.get('rrr', 0.0) if best_signal else 0.0
         }
 
-        with open("signal_smc.json", "w") as f:
+        with open("signal_main.json", "w") as f:
             json.dump(signal_export, f, indent=4)
-        logger.info("📄 File signal_smc.json berhasil diperbarui.")
+        logger.info("📄 File signal_main.json berhasil diperbarui.")
 
         # --- LAPORAN PORTOFOLIO ---
         if now_wib.hour in JAM_LAPORAN and now_wib.minute < 30:
