@@ -11,25 +11,29 @@
 """
 
 import os
+import sys
 import ccxt
 import pandas as pd
 import requests
 from telegram import Bot
 import asyncio
 import textwrap
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 # --- KONFIGURASI ---
 TOKEN   = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+# Validasi Token di awal
+if not TOKEN or not CHAT_ID:
+    print("FATAL ERROR: TELEGRAM_TOKEN atau TELEGRAM_CHAT_ID tidak ditemukan.")
+    sys.exit(1)
+
 raw_symbol = os.getenv("INPUT_SYMBOL", "BTC/USDT").upper().strip()
 SYMBOL_SPOT = raw_symbol if "/" in raw_symbol else f"{raw_symbol}/USDT"
-# Format symbol khusus untuk KuCoin Futures/Swap (dipakai HANYA untuk konteks)
 SYMBOL_SWAP = SYMBOL_SPOT if ':' in SYMBOL_SPOT else f"{SYMBOL_SPOT}:USDT"
 
 PAIR_NAME = SYMBOL_SPOT.replace('/', '-').replace('USDT', 'IDR')
-
 
 # ============================================================
 # HELPER
@@ -42,20 +46,14 @@ def get_usd_idr() -> float:
     except Exception:
         return 18000.0
 
-
 def rapihkan_teks(label: str, teks: str, width: int = 35) -> str:
     indent_spasi = " " * len(label)
     return textwrap.fill(teks, width=width, initial_indent=label, subsequent_indent=indent_spasi)
 
-
 def is_candle_running(timeframe: str) -> tuple[bool, int]:
-    """
-    Cek apakah candle timeframe saat ini masih berjalan (belum close).
-    Return: (sedang_running, menit_atau_jam_berjalan)
-    """
     now = datetime.now(timezone.utc)
     if timeframe == '1h':
-        return True, now.minute  # candle 1h selalu "running" sampai menit 59
+        return True, now.minute
     if timeframe == '4h':
         jam_ke = now.hour % 4
         return True, jam_ke * 60 + now.minute
@@ -63,15 +61,9 @@ def is_candle_running(timeframe: str) -> tuple[bool, int]:
         return True, now.hour * 60 + now.minute
     return False, 0
 
-
 def cek_fvg(df: pd.DataFrame, usd_idr: float):
-    """
-    Deteksi Fair Value Gap (FVG) DENGAN cek mitigasi.
-    Hanya kembalikan FVG yang belum "terisi" oleh candle setelahnya.
-    """
     n = len(df)
-    for i in range(n - 2, 2, -1):  # mulai dari candle ke-2 dari akhir (skip candle live)
-        # Bullish FVG
+    for i in range(n - 2, 2, -1):
         if df['low'].iloc[i] > df['high'].iloc[i - 2]:
             gap_bawah = float(df['high'].iloc[i - 2])
             gap_atas  = float(df['low'].iloc[i])
@@ -80,7 +72,6 @@ def cek_fvg(df: pd.DataFrame, usd_idr: float):
             if not sudah_terisi:
                 return "Bullish", gap_bawah * usd_idr, gap_atas * usd_idr
 
-        # Bearish FVG
         if df['high'].iloc[i] < df['low'].iloc[i - 2]:
             gap_bawah = float(df['high'].iloc[i])
             gap_atas  = float(df['low'].iloc[i - 2])
@@ -88,95 +79,69 @@ def cek_fvg(df: pd.DataFrame, usd_idr: float):
             sudah_terisi = (sisa >= gap_atas).any() if len(sisa) > 0 else False
             if not sudah_terisi:
                 return "Bearish", gap_bawah * usd_idr, gap_atas * usd_idr
-
     return None, 0, 0
-
 
 def hitung_skor_smc(choch, bos, mitigation, fvg, rrr, volume_spike):
     score = 0
     breakdown = []
-
     if choch:
         score += 30
         breakdown.append("• Konfirmasi CHoCH Valid (+30)")
     else:
         breakdown.append("• Tanpa CHoCH (+0)")
-
     if bos:
         score += 20
         breakdown.append("• Struktur BOS Terbentuk (+20)")
     else:
         breakdown.append("• Tanpa BOS (+0)")
-
     if mitigation:
         score += 15
         breakdown.append("• Area Mitigasi OB Tersentuh (+15)")
     else:
         breakdown.append("• Belum Menyentuh OB (+0)")
-
     if fvg:
         score += 15
         breakdown.append("• Area FVG Valid Terbentuk (+15)")
     else:
         breakdown.append("• Tanpa FVG Aktif (+0)")
-
     if volume_spike:
         score += 10
         breakdown.append("• Lonjakan Volume (+10)")
     else:
         breakdown.append("• Volume Standar (+0)")
-
     if rrr >= 2.0:
         score += 10
         breakdown.append(f"• RRR Ideal ({rrr:.2f} >= 2.0) (+10)")
     else:
         breakdown.append(f"• RRR Cukup ({rrr:.2f} < 2.0) (+0)")
-
     return min(score, 100), breakdown
 
-
-async def kirim_error(bot: Bot, pesan: str):
+async def kirim_pesan(bot: Bot, pesan: str):
     try:
         await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='Markdown')
     except Exception as e:
-        print(f"Gagal kirim notif error: {e}")
-
+        print(f"Gagal kirim notif: {e}")
 
 # ============================================================
 # MAIN ANALYSIS
 # ============================================================
 
-def run_analysis():
+async def main_async():
     print(f"DEBUG: Analisa {SYMBOL_SPOT} (spot) | konteks futures: {SYMBOL_SWAP}")
-
-    # Exchange SPOT — untuk data harga yang akan dieksekusi
-    exchange_spot = ccxt.kucoin({
-        'enableRateLimit': True,
-        'options': {'defaultType': 'spot'},
-        'timeout': 30000,
-    })
-
-    # Exchange SWAP — HANYA untuk funding rate (konteks sentimen, bukan eksekusi)
-    exchange_swap = ccxt.kucoin({
-        'enableRateLimit': True,
-        'options': {'defaultType': 'swap'},
-        'timeout': 30000,
-    })
-
     bot = Bot(token=TOKEN)
+    
+    exchange_spot = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
+    exchange_swap = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'swap'}, 'timeout': 30000})
 
     try:
         exchange_spot.load_markets()
     except Exception as e:
-        print(f"Gagal memuat market spot: {e}")
-        asyncio.run(kirim_error(bot,
-            f"⚠️ *Gagal Memuat Market*\nSymbol: `{SYMBOL_SPOT}`\nError: `{str(e)[:150]}`"))
+        await kirim_pesan(bot, f"⚠️ *Gagal Memuat Market*\nSymbol: `{SYMBOL_SPOT}`\nError: `{str(e)[:150]}`")
         return
 
     usd_idr = get_usd_idr()
 
-    # --- FUNDING RATE (KONTEKS SAJA, TIDAK MEMPENGARUHI KEPUTUSAN SPOT) ---
-    funding_rate = 0.0
+    # --- FUNDING RATE ---
     fr_tersedia = True
     try:
         exchange_swap.load_markets()
@@ -197,15 +162,13 @@ def run_analysis():
         status_fr = f"{fr_persen:.4f}% (Normal / Seimbang ⚖️)"
 
     try:
-        # --- DATA SPOT (yang akan benar-benar dieksekusi) ---
+        # --- DATA SPOT ---
         bars_1h = exchange_spot.fetch_ohlcv(SYMBOL_SPOT, timeframe='1h', limit=50)
         bars_4h = exchange_spot.fetch_ohlcv(SYMBOL_SPOT, timeframe='4h', limit=50)
         bars_1d = exchange_spot.fetch_ohlcv(SYMBOL_SPOT, timeframe='1d', limit=30)
 
         if len(bars_1h) < 25 or len(bars_4h) < 25 or len(bars_1d) < 20:
-            asyncio.run(kirim_error(bot,
-                f"⚠️ *Data Tidak Cukup*\nSymbol: `{SYMBOL_SPOT}`\n"
-                f"Kemungkinan koin baru listing atau symbol salah."))
+            await kirim_pesan(bot, f"⚠️ *Data Tidak Cukup*\nSymbol: `{SYMBOL_SPOT}`\nKemungkinan koin baru listing.")
             return
 
         df_1h = pd.DataFrame(bars_1h, columns=['timestamp','open','high','low','close','volume']).astype(float)
@@ -214,19 +177,16 @@ def run_analysis():
 
         harga_sekarang = float(df_1h['close'].iloc[-1] * usd_idr)
 
-        # ── CANDLE RUNNING DETECTION ──────────────────────────
+        # --- CANDLE RUNNING ---
         run_1h, waktu_1h = is_candle_running('1h')
         run_4h, waktu_4h = is_candle_running('4h')
         run_1d, waktu_1d = is_candle_running('1d')
-        info_running = (
-            f"• Candle 1H : berjalan {waktu_1h} mnt\n"
-            f"• Candle 4H : berjalan {waktu_4h} mnt\n"
-            f"• Candle 1D : berjalan {waktu_1d} mnt"
-        )
-        # Flag: candle 1H masih sangat dini (< 15 menit) → sinyal 1H bisa berubah drastis
+        info_running = (f"• Candle 1H : berjalan {waktu_1h} mnt\n"
+                        f"• Candle 4H : berjalan {waktu_4h} mnt\n"
+                        f"• Candle 1D : berjalan {waktu_1d} mnt")
         candle_1h_dini = waktu_1h < 15
 
-        # ── ATR PER TIMEFRAME (FIX BUG UTAMA) ─────────────────
+        # --- ATR & VOLUME ---
         df_1h['atr'] = (df_1h['high'] - df_1h['low']).rolling(14).mean()
         df_4h['atr'] = (df_4h['high'] - df_4h['low']).rolling(14).mean()
         df_1d['atr'] = (df_1d['high'] - df_1d['low']).rolling(14).mean()
@@ -236,45 +196,33 @@ def run_analysis():
         atr_4h_idr = float(df_4h['atr'].iloc[-1] * usd_idr)
         atr_1d_idr = float(df_1d['atr'].iloc[-1] * usd_idr)
 
-        # ── PIVOT POINTS ───────────────────────────────────────
+        # --- PIVOT POINTS ---
         def pivot_levels(df):
             h, l, c = df['high'].iloc[-1], df['low'].iloc[-1], df['close'].iloc[-1]
             p = (h + l + c) / 3
-            return {
-                'p': p,
-                'r1': (2*p) - l, 'r2': p + (h - l),
-                's1': (2*p) - h, 's2': p - (h - l),
-            }
+            return {'p': p, 'r1': (2*p) - l, 'r2': p + (h - l), 's1': (2*p) - h, 's2': p - (h - l)}
 
-        piv_1h = pivot_levels(df_1h)
-        piv_4h = pivot_levels(df_4h)
-        piv_1d = pivot_levels(df_1d)
+        piv_1h, piv_4h, piv_1d = pivot_levels(df_1h), pivot_levels(df_4h), pivot_levels(df_1d)
+        r1_1h_idr, s1_1h_idr = float(piv_1h['r1'] * usd_idr), float(piv_1h['s1'] * usd_idr)
+        r1_4h_idr, r2_4h_idr = float(piv_4h['r1'] * usd_idr), float(piv_4h['r2'] * usd_idr)
+        s1_4h_idr, s2_4h_idr = float(piv_4h['s1'] * usd_idr), float(piv_4h['s2'] * usd_idr)
+        r1_1d_idr, r2_1d_idr = float(piv_1d['r1'] * usd_idr), float(piv_1d['r2'] * usd_idr)
+        s1_1d_idr, s2_1d_idr = float(piv_1d['s1'] * usd_idr), float(piv_1d['s2'] * usd_idr)
 
-        r1_1h_idr = float(piv_1h['r1'] * usd_idr)
-        s1_1h_idr = float(piv_1h['s1'] * usd_idr)
-        r1_4h_idr = float(piv_4h['r1'] * usd_idr)
-        r2_4h_idr = float(piv_4h['r2'] * usd_idr)
-        s1_4h_idr = float(piv_4h['s1'] * usd_idr)
-        s2_4h_idr = float(piv_4h['s2'] * usd_idr)
-        r1_1d_idr = float(piv_1d['r1'] * usd_idr)
-        r2_1d_idr = float(piv_1d['r2'] * usd_idr)
-        s1_1d_idr = float(piv_1d['s1'] * usd_idr)
-        s2_1d_idr = float(piv_1d['s2'] * usd_idr)
-
-        # ── TREND (EMA 9/21) ──────────────────────────────────
+        # --- TREND (EMA 9/21) DIUBAH KE 'AND' AGAR LEBIH AKURAT ---
         for df in (df_1h, df_4h, df_1d):
             df['ema9']  = df['close'].ewm(span=9,  adjust=False).mean()
             df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
 
-        is_bullish_1h = (df_1h['ema9'].iloc[-1] > df_1h['ema21'].iloc[-1]) or (df_1h['close'].iloc[-1] > df_1h['ema9'].iloc[-1])
-        is_bullish_4h = (df_4h['ema9'].iloc[-1] > df_4h['ema21'].iloc[-1]) or (df_4h['close'].iloc[-1] > df_4h['ema9'].iloc[-1])
-        is_bullish_1d = (df_1d['ema9'].iloc[-1] > df_1d['ema21'].iloc[-1]) or (df_1d['close'].iloc[-1] > df_1d['ema9'].iloc[-1])
+        is_bullish_1h = (df_1h['ema9'].iloc[-1] > df_1h['ema21'].iloc[-1]) and (df_1h['close'].iloc[-1] > df_1h['ema9'].iloc[-1])
+        is_bullish_4h = (df_4h['ema9'].iloc[-1] > df_4h['ema21'].iloc[-1]) and (df_4h['close'].iloc[-1] > df_4h['ema9'].iloc[-1])
+        is_bullish_1d = (df_1d['ema9'].iloc[-1] > df_1d['ema21'].iloc[-1]) and (df_1d['close'].iloc[-1] > df_1d['ema9'].iloc[-1])
 
         tren_1h_teks = "NAIK 🟢" if is_bullish_1h else "TURUN 🔴"
         tren_4h_teks = "NAIK 🟢" if is_bullish_4h else "TURUN 🔴"
         tren_1d_teks = "NAIK 🟢" if is_bullish_1d else "TURUN 🔴"
 
-        # ── SL/TP per timeframe, ATR sesuai timeframe masing2 ──
+        # --- SL/TP ---
         if is_bullish_1h:
             sl_1h_idr, tp_1h_idr = s1_1h_idr - (0.3 * atr_1h_idr), r1_1h_idr
         else:
@@ -294,13 +242,12 @@ def run_analysis():
             level_1d_teks = f"  Lantai 1    : Rp {s1_1d_idr:,.0f}\n  Lantai 2    : Rp {s2_1d_idr:,.0f}"
             sl_1d_idr, tp_1d_idr = s2_1d_idr - (1.0 * atr_1d_idr), r1_1d_idr
 
-        # ── RRR ────────────────────────────────────────────────
         risk_1h = abs(harga_sekarang - sl_1h_idr); reward_1h = abs(tp_1h_idr - harga_sekarang)
         rrr_1h = (reward_1h / risk_1h) if risk_1h > 0 else 0.0
         risk_4h = abs(harga_sekarang - sl_4h_idr); reward_4h = abs(tp_4h_idr - harga_sekarang)
         rrr_4h = (reward_4h / risk_4h) if risk_4h > 0 else 0.0
 
-        # ── RSI 4H ─────────────────────────────────────────────
+        # --- RSI 4H ---
         delta = df_4h['close'].diff()
         up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
         ema_up, ema_down = up.ewm(com=13, adjust=False).mean(), down.ewm(com=13, adjust=False).mean()
@@ -315,36 +262,31 @@ def run_analysis():
         else:
             status_rsi = f"Wajar/Normal ({rsi_4h:.0f})"
 
-        # ── DIVERGENCE RSI 4H (tambahan) ───────────────────────
+        # --- DIVERGENCE RSI 4H ---
         price_hh = df_4h['close'].iloc[-1] > df_4h['close'].iloc[-11:-1].max()
         rsi_lh   = df_4h['rsi'].iloc[-1]  < df_4h['rsi'].iloc[-11:-1].max()
-        bearish_div = bool(price_hh and rsi_lh)
-
         price_ll = df_4h['close'].iloc[-1] < df_4h['close'].iloc[-11:-1].min()
         rsi_hl   = df_4h['rsi'].iloc[-1]  > df_4h['rsi'].iloc[-11:-1].min()
-        bullish_div = bool(price_ll and rsi_hl)
 
         divergence_teks = "Tidak Terdeteksi"
-        if bearish_div:
+        if price_hh and rsi_lh:
             divergence_teks = "⚠️ Bearish (harga naik, RSI melemah)"
-        elif bullish_div:
+        elif price_ll and rsi_hl:
             divergence_teks = "✅ Bullish (harga turun, RSI menguat)"
 
-        # ── CHoCH & BOS — DIRECTIONAL (FIX) ────────────────────
+        # --- CHoCH & BOS ---
         curr_1h_live = df_1h.iloc[-1]
         vol_spike = bool(curr_1h_live['volume'] > (df_1h['avg_vol'].iloc[-1] * 1.8))
 
         if is_bullish_4h:
             choch = bool(curr_1h_live['close'] > curr_1h_live['open'] and curr_1h_live['volume'] > (df_1h['avg_vol'].iloc[-1] * 1.5))
             bos   = bool(curr_1h_live['close'] > df_1h['high'].iloc[-6:-1].max())
+            mitigation = bool((df_4h['low'].iloc[-1] * usd_idr) <= (s1_4h_idr * 1.005))
         else:
             choch = bool(curr_1h_live['close'] < curr_1h_live['open'] and curr_1h_live['volume'] > (df_1h['avg_vol'].iloc[-1] * 1.5))
             bos   = bool(curr_1h_live['close'] < df_1h['low'].iloc[-6:-1].min())
+            mitigation = bool((df_4h['high'].iloc[-1] * usd_idr) >= (r1_4h_idr * 0.995))
 
-        mitigation = bool((df_4h['low'].iloc[-1] * usd_idr) <= (s1_4h_idr * 1.005)) if is_bullish_4h \
-                     else bool((df_4h['high'].iloc[-1] * usd_idr) >= (r1_4h_idr * 0.995))
-
-        # ── FVG dengan cek mitigasi (FIX) ──────────────────────
         fvg_type, fvg_min, fvg_max = cek_fvg(df_1h, usd_idr)
         if fvg_type == "Bullish":
             fvg_active, fvg_teks_status = True, f"Bullish 🟢 (Rp {fvg_min:,.0f} - Rp {fvg_max:,.0f})"
@@ -356,40 +298,25 @@ def run_analysis():
         skor_smc, breakdown_skor = hitung_skor_smc(choch, bos, mitigation, fvg_active, rrr_4h, vol_spike)
         label_skor = "🔥 HIGH" if skor_smc >= 80 else ("🎯 POTENSIAL" if skor_smc >= 60 else "⚠️ STANDAR")
 
-        # ── Peringatan candle 1H masih dini ────────────────────
-        peringatan_dini = ""
-        if candle_1h_dini:
-            peringatan_dini = (
-                f"\n⏳ *Catatan:* Candle 1H baru berjalan {waktu_1h} menit — "
-                f"sinyal 1H masih bisa berubah, gunakan sebagai early warning saja.\n"
-            )
+        peringatan_dini = f"\n⏳ *Catatan:* Candle 1H baru berjalan {waktu_1h} menit — sinyal 1H masih bisa berubah.\n" if candle_1h_dini else ""
 
-        # ── Teks perspektif per timeframe ──────────────────────
-        if is_bullish_1h:
-            smc_1h_k, smc_1h_r = "Struktur mikro 1H Bullish, momentum scalping aktif.", "Potensi dorongan cepat ke resistance terdekat."
-        else:
-            smc_1h_k, smc_1h_r = "Tekanan jual 1H mendominasi area mikro.", "Waspada koreksi cepat, utamakan scalping pendek."
+        # --- TEKS PERSPEKTIF ---
+        smc_1h_k = "Struktur mikro 1H Bullish, momentum scalping aktif." if is_bullish_1h else "Tekanan jual 1H mendominasi area mikro."
+        smc_1h_r = "Potensi dorongan cepat ke resistance terdekat." if is_bullish_1h else "Waspada koreksi cepat, utamakan scalping pendek."
+        smc_4h_k = "Tren 4H NAIK/Rebound. Live Price merespons area support." if is_bullish_4h else f"Tren 4H TURUN. Tekanan jual terasa, Skor Setup ({skor_smc}/100)."
+        smc_4h_r = "Lanjut dorongan naik bertahap menuju target TP." if is_bullish_4h else "Wait & See dulu. Tunggu pantulan aman dekat Lantai 1 4H."
+        smc_1d_k = "Tren makro 1D NAIK kuat. Struktur makro sehat." if is_bullish_1d else "Tren makro 1D TURUN. Bandar makro cenderung distribusi."
+        smc_1d_r = "Bagus untuk posisi Swing (Spot)." if is_bullish_1d else "Hindari all-in. Cicil beli bertahap (DCA) lebih aman di spot."
 
-        if is_bullish_4h:
-            smc_4h_k, smc_4h_r = "Tren 4H NAIK/Rebound. Live Price merespons area support.", "Lanjut dorongan naik bertahap menuju target TP."
-        else:
-            smc_4h_k, smc_4h_r = f"Tren 4H TURUN. Tekanan jual terasa, Skor Setup ({skor_smc}/100).", "Wait & See dulu. Tunggu pantulan aman dekat Lantai 1 4H."
-
-        if is_bullish_1d:
-            smc_1d_k, smc_1d_r = "Tren makro 1D NAIK kuat. Struktur makro sehat.", "Bagus untuk posisi Swing (Spot)."
-        else:
-            smc_1d_k, smc_1d_r = "Tren makro 1D TURUN. Bandar makro cenderung distribusi.", "Hindari all-in. Cicil beli bertahap (DCA) lebih aman di spot."
-
+        # Pemformatan
         smc_1h_k_fmt  = rapihkan_teks("• Kondisi   : ", smc_1h_k)
         smc_1h_r_fmt  = rapihkan_teks("• Rekom     : ", smc_1h_r)
         smc_1h_sl_fmt = rapihkan_teks("• Target SL : ", f"Rp {sl_1h_idr:,.0f}")
         smc_1h_tp_fmt = rapihkan_teks("• Target TP : ", f"Rp {tp_1h_idr:,.0f} (RRR 1:{rrr_1h:.2f})")
-
         smc_4h_k_fmt  = rapihkan_teks("• Kondisi   : ", smc_4h_k)
         smc_4h_r_fmt  = rapihkan_teks("• Rekom     : ", smc_4h_r)
         smc_4h_sl_fmt = rapihkan_teks("• Target SL : ", f"Rp {sl_4h_idr:,.0f}")
         smc_4h_tp_fmt = rapihkan_teks("• Target TP : ", f"Rp {tp_4h_idr:,.0f} (RRR 1:{rrr_4h:.2f})")
-
         smc_1d_k_fmt  = rapihkan_teks("• Kondisi   : ", smc_1d_k)
         smc_1d_r_fmt  = rapihkan_teks("• Rekom     : ", smc_1d_r)
         smc_1d_sl_fmt = rapihkan_teks("• Target SL : ", f"Rp {sl_1d_idr:,.0f}")
@@ -397,8 +324,6 @@ def run_analysis():
 
         breakdown_str = "\n".join(breakdown_skor)
 
-        # ── FORMAT PESAN TELEGRAM ──────────────────────────────
-        bot2 = Bot(token=TOKEN)
         msg = (
             f"```text\n"
             f"🔍 [ANALISA SPOT] — {PAIR_NAME}\n"
@@ -445,20 +370,15 @@ def run_analysis():
             f"_tidak mempengaruhi keputusan (analisa murni Spot)._"
         )
 
-        async def send():
-            await bot2.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
-
-        asyncio.run(send())
+        await kirim_pesan(bot, msg)
         print(f"Sukses mengirim analisa {PAIR_NAME} ke Telegram.")
 
     except Exception as e:
         print(f"Error saat analisa {SYMBOL_SPOT}: {e}")
-        asyncio.run(kirim_error(bot,
-            f"⚠️ *Gagal Analisa* `{PAIR_NAME}`\n"
-            f"Error: `{str(e)[:200]}`\n\n"
-            f"Kemungkinan symbol salah, koin tidak listing di KuCoin,\n"
-            f"atau data historis belum cukup (koin baru)."))
+        await kirim_pesan(bot, f"⚠️ *Gagal Analisa* `{PAIR_NAME}`\nError: `{str(e)[:200]}`")
 
+def run_analysis():
+    asyncio.run(main_async())
 
 if __name__ == '__main__':
     run_analysis()
