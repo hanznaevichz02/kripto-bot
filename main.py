@@ -1,7 +1,7 @@
 """
 ========================================================
     KRIPTO BOT — Smart Money Edition (Main Scanner)
-    Versi: 4.0 (Integrasi Informan Pribadi & Radar)
+    Versi: 4.1 (Integrasi Informan Pribadi & Pra-Golden Cross)
     SPOT MARKET
 ========================================================
 """
@@ -51,7 +51,7 @@ ASSET_LIST: List[str] = [
     'ADA/USDT'
 ]
 
-# Mapping Simbol Spot ke Kucoin Futures (Lengkap 16 Koin)
+# Mapping Simbol Spot ke Kucoin Futures
 FUTURES_MAP: Dict[str, str] = {
     'BTC/USDT': 'XBTUSDTM',  'ETH/USDT': 'ETHUSDTM',
     'SOL/USDT': 'SOLUSDTM',  'BNB/USDT': 'BNBUSDTM',
@@ -64,7 +64,9 @@ FUTURES_MAP: Dict[str, str] = {
 }
 
 JAM_LAPORAN = {9, 14, 20}
-BULLISH_SIGNAL_TYPES = {'BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT'}
+
+# 1. TAMBAHAN EMA9_BREAK PADA DAFTAR SINYAL
+BULLISH_SIGNAL_TYPES = {'BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT', 'EMA9_BREAK'}
 
 DESKRIPSI = {
     'BULL_SWEEP':     ("HARGA AKAN NAIK", "Bandar sapu SL ritel disertai FVG, siap loncat naik."),
@@ -75,12 +77,12 @@ DESKRIPSI = {
     'DISTRIBUSI':      ("DISTRIBUSI WHALE", "Volume besar, spread sempit (Jualan barang)."),
     'BULL_BREAKOUT':  ("BREAKOUT VOLUME", "Modal besar jebol atap ke atas + FVG."),
     'BEAR_BREAKOUT':  ("BEAR_BREAKOUT", "Modal besar jebol lantai ke bawah."),
+    'EMA9_BREAK':     ("PRA-GOLDEN CROSS", "Harga jebol EMA9 ke atas + Volume Beli (Curi start sebelum Golden Cross)."),
 }
 
 # ============================================================
 # ASYNC API HELPERS
 # ============================================================
-
 async def get_usd_idr(client: httpx.AsyncClient) -> float:
     try:
         r = await client.get("https://indodax.com/api/ticker/usdtidr", timeout=5.0)
@@ -112,7 +114,6 @@ def format_rp(nilai: float) -> str:
 # ============================================================
 # KALKULASI INDIKATOR & SMC
 # ============================================================
-
 def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
     tr = pd.concat([
         df['high'] - df['low'],
@@ -172,7 +173,6 @@ def deteksi_fvg(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]]]:
 # ============================================================
 # ANALISA UTAMA SCANNER
 # ============================================================
-
 def analisa(
     df_1h: pd.DataFrame,
     df_4h: pd.DataFrame,
@@ -184,7 +184,7 @@ def analisa(
 
     if len(df_1h) < 50 or len(df_4h) < 20: return None
 
-    # Tambahan: EMA & Fase 4H untuk Informan
+    # Kalkulasi EMA di 4H untuk status Tren/Fase
     df_4h['ema9'] = df_4h['close'].ewm(span=9, adjust=False).mean()
     df_4h['ema21'] = df_4h['close'].ewm(span=21, adjust=False).mean()
     df_4h['ema50'] = df_4h['close'].ewm(span=50, adjust=False).mean()
@@ -198,12 +198,21 @@ def analisa(
     elif c_4h < e9 and e9 >= e21: fase_4h = "KOREKSI ↘️"
     else: fase_4h = "SIDEWAYS ⚪"
 
-    # Tambahan: RSI 4H untuk Informan
+    # RSI 4H
     delta_4h = df_4h['close'].diff()
     up, down = delta_4h.clip(lower=0), -1 * delta_4h.clip(upper=0)
     rs = (up.ewm(com=13, adjust=False).mean()) / (down.ewm(com=13, adjust=False).mean())
     rsi_4h = float((100 - (100 / (1 + rs))).iloc[-1])
 
+    # 2. LOGIKA PATAHAN EMA9 (PRA-GOLDEN CROSS) PADA TIMEFRAME 1H
+    df_1h['ema9'] = df_1h['close'].ewm(span=9, adjust=False).mean()
+    p_1h_close, p_1h_e9 = df_1h['close'].iloc[-2], df_1h['ema9'].iloc[-2]
+    c_1h_close, c_1h_e9 = df_1h['close'].iloc[-1], df_1h['ema9'].iloc[-1]
+    
+    # Syarat: Candle sebelumnya tutup di bawah EMA9, candle saat ini (atau baru ditutup) berada di atas EMA9
+    is_patahan_ema9_bull = (p_1h_close < p_1h_e9) and (c_1h_close > c_1h_e9)
+
+    # Kalkulasi Candlestick 1H lainnya
     c, p = df_1h.iloc[-2], df_1h.iloc[-3]
     latest_c = df_1h.iloc[-1]
     harga_idr = latest_c['close'] * usd_idr
@@ -272,6 +281,8 @@ def analisa(
     if cvd_naik: skor_dasar += 10.0
     if ada_bullish_fvg: skor_dasar += 10.0
     if funding_rate is not None and funding_rate <= 0.0005: skor_dasar += 5.0
+    if is_patahan_ema9_bull: skor_dasar += 5.0 # Ekstra skor jika momentum patah ke atas
+    
     skor_final = min(round(skor_dasar, 1), 100.0)
 
     base = {
@@ -302,12 +313,15 @@ def analisa(
     if bull_breakout: return {**base, 'tipe': 'BULL_BREAKOUT', 'aksi': '🟢 FOLLOW TREND (Breakout + FVG)', 'strength': strength}
     if bear_breakout: return {**base, 'tipe': 'BEAR_BREAKOUT', 'aksi': '⏳ TUNGGU DI BAWAH (Wait Drop)', 'strength': strength}
 
+    # 3. KONDISI TRIGGER SINYAL PATAHAN EMA9
+    if is_patahan_ema9_bull and cvd_naik: 
+        return {**base, 'tipe': 'EMA9_BREAK', 'aksi': '🟢 ENTRY CEPAT (Pra-Golden Cross & CVD Naik)', 'strength': '🔥'}
+
     return None
 
 # ============================================================
 # TELEGRAM FORMATTERS
 # ============================================================
-
 def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
     tipe, harga = s['tipe'], format_rp(s['harga'])
     judul, ket = DESKRIPSI.get(tipe, (tipe, ""))
@@ -357,15 +371,13 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
     )
 
 def format_informan_radar(kumpulan_semua: List[dict], best_symbol: str) -> str:
-    """Format rekap koin-koin runner-up yang terdeteksi bullish untuk dikirim ke user"""
     radar = [s for s in kumpulan_semua if s['symbol'] != best_symbol and s['tipe'] in BULLISH_SIGNAL_TYPES and s.get('skor', 0) >= 60]
-    
     if not radar: return ""
         
     radar.sort(key=lambda x: x.get('skor', 0), reverse=True)
     
     lines = ["🕵️‍♂️ <b>RADAR INFORMAN PRIBADI</b>", "<i>Koin potensial lain yang terpantau:</i>\n"]
-    for s in radar[:5]: # Tampilkan max 5 koin terbaik lainnya
+    for s in radar[:5]: 
         lines.append(f"🔹 <b>{s['symbol']}</b> | Skor: {s['skor']}")
         lines.append(f"  ├ Fase  : {s['fase_4h']} | RSI: {s.get('rsi_4h', 0):.1f}")
         lines.append(f"  ├ Setup : {s['tipe'].replace('_', ' ')}")
@@ -373,7 +385,7 @@ def format_informan_radar(kumpulan_semua: List[dict], best_symbol: str) -> str:
             lines.append(f"  └ ⚠️ <i>Skip Bot Trading (RRR {s['rrr']}x / Profit {s.get('profit_pct',0):.1f}%)</i>")
         else:
             lines.append(f"  └ ✅ <i>Lolos Syarat Bot, kalah peringkat utama.</i>")
-        lines.append("") # Spasi antar koin
+        lines.append("")
     
     return "\n".join(lines)
 
@@ -475,17 +487,13 @@ async def scan_asset(
             is_porto = symbol in PORTFOLIO
 
             if is_bullish:
-                # Cek kelayakan untuk Bot Trading (Otomatis)
                 hasil['is_tradeable'] = True
                 if hasil['rrr'] < MIN_RRR_THRESHOLD or hasil.get('profit_pct', 0.0) < MIN_PROFIT_PCT_THRESHOLD:
                     hasil['is_tradeable'] = False
                     logger.info(f"👀 {symbol}: Masuk Radar Informan, tapi Skip Bot Trade (RRR/Profit kurang).")
-                
-                # Kita TETAP return hasil (berbeda dengan kode lama) agar masuk ke Radar Informan
                 return hasil
 
             elif is_porto:
-                # Warning portofolio jika ada sinyal Jual/Bearish
                 logger.warning(f"🚨 WARNING PORTOFOLIO: {symbol} terdeteksi sinyal JUAL/DUMP ({hasil['tipe']})!")
                 pesan_warning = format_pesan(symbol, hasil, is_porto_alert=True)
                 await bot.send_message(chat_id=CHAT_ID, text=pesan_warning, parse_mode='HTML')
