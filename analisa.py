@@ -137,8 +137,8 @@ async def main_async():
     print(f"DEBUG: Analisa {SYMBOL_SPOT} (spot) | konteks futures: {SYMBOL_SWAP}")
     bot = Bot(token=TOKEN)
     
-    exchange_spot = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
-    exchange_swap = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'swap'}, 'timeout': 30000})
+    exchange_spot = ccxt.binance({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
+    exchange_swap = ccxt.binance({'enableRateLimit': True, 'options': {'defaultType': 'swap'}, 'timeout': 30000})
 
     try:
         exchange_spot.load_markets()
