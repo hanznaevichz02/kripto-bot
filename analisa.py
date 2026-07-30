@@ -349,6 +349,14 @@ async def main_async():
 
         breakdown_str = "\n".join(breakdown_skor)
 
+        # --- KESIMPULAN FORMAT RINGKAS ---
+        kesimpulan_teks = (
+            f"----------------------------------\n"
+            f"💡 KESIMPULAN\n"
+            f"• Jangka Pendek: Target Rp {tp_4h_idr:,.0f} (SL: Rp {sl_4h_idr:,.0f})\n"
+            f"• Jangka Panjang: Target Rp {tp_1d_idr:,.0f} (SL: Rp {sl_1d_idr:,.0f})"
+        )
+
         msg = (
             f"```text\n"
             f"🔍 [ANALISA SPOT] — {PAIR_NAME}\n"
@@ -389,6 +397,7 @@ async def main_async():
             f"----------------------------------\n"
             f"📋 RINCIAN SKOR SETUP (SMC + FVG)\n"
             f"{breakdown_str}\n"
+            f"{kesimpulan_teks}\n"
             f"```"
             f"{peringatan_dini}"
             f"\n_*Funding rate dari pasar Futures — hanya konteks sentimen,_\n"
