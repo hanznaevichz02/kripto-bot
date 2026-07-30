@@ -385,7 +385,12 @@ async def main():
             entry_p, amount, sl, tp = pos["entry_price_idr"], pos["amount"], pos["sl"], pos["tp"]
             is_win = data["high_idr"] >= tp
             is_loss = data["low_idr"] <= sl
-            is_emerg_exit = data["is_emergency_exit"]
+            
+            # Emergency Exit HANYA aktif jika terdeteksi Bear Sweep DAN 
+            # harga saat ini sudah mendekati zona SL (misal jarak sisa kurang dari 1% dari SL) 
+            # atau low harga sudah sangat tipis di atas SL.
+            jarak_ke_sl_pct = (data["harga_idr"] - sl) / sl
+            is_emerg_exit = data["is_emergency_exit"] and (jarak_ke_sl_pct <= 0.01)
 
             if is_win or is_loss or is_emerg_exit:
                 if is_loss:
@@ -395,8 +400,9 @@ async def main():
                     exit_reason = "TAKE PROFIT (SMART TARGET) 🎯"
                     exit_price = tp
                 else:
-                    exit_reason = f"EMERGENCY EXIT ({data['emerg_reason']}) ⚠️"
-                    exit_price = data["harga_idr"]
+                    exit_reason = f"EMERGENCY EXIT ({data['emerg_reason']} - Dekat SL) ⚠️"
+                    # Keluar di harga SL atau harga pasar terendah saat itu jika sudah jebol tipis
+                    exit_price = min(data["harga_idr"], sl)
 
                 gross = exit_price * amount
                 net = gross - (gross * FEE_TAX_RATE)
