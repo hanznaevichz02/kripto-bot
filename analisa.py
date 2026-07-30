@@ -1,13 +1,13 @@
 """
 ========================================================
-   KRIPTO BOT — Analisa Mendalam Per-Koin (v6.0 Spot-Oriented)
-   Fungsi : Trigger manual, input simbol bebas.
-            Funding Rate & data futures HANYA untuk konteks
-            analisa (bukan untuk eksekusi) — orientasi SPOT.
-   Fix    : Symbol swap konsisten, ATR per-timeframe,
-            CHoCH/BOS directional, FVG mitigasi,
-            notif error, candle running detection,
-            Momentum 4 fase (Rebound/Koreksi).
+    KRIPTO BOT — Analisa Mendalam Per-Koin (v6.0 Spot-Oriented)
+    Fungsi : Trigger manual, input simbol bebas.
+             Funding Rate & data futures HANYA untuk konteks
+             analisa (bukan untuk eksekusi) — orientasi SPOT.
+    Fix    : Symbol swap konsisten, ATR per-timeframe,
+             CHoCH/BOS directional, FVG mitigasi,
+             notif error, candle running detection,
+             Momentum 4 fase (Rebound/Koreksi).
 ========================================================
 """
 
@@ -66,6 +66,13 @@ def is_candle_running(timeframe: str) -> tuple[bool, int]:
     if timeframe == '1d':
         return True, now.hour * 60 + now.minute
     return False, 0
+
+def hitung_true_range_atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
+    tr1 = df['high'] - df['low']
+    tr2 = (df['high'] - df['close'].shift(1)).abs()
+    tr3 = (df['low'] - df['close'].shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return tr.rolling(window=window).mean()
 
 def cek_fvg(df: pd.DataFrame, usd_idr: float):
     n = len(df)
@@ -192,10 +199,10 @@ async def main_async():
                         f"• Candle 1D : berjalan {waktu_1d} mnt")
         candle_1h_dini = waktu_1h < 15
 
-        # --- ATR & VOLUME ---
-        df_1h['atr'] = (df_1h['high'] - df_1h['low']).rolling(14).mean()
-        df_4h['atr'] = (df_4h['high'] - df_4h['low']).rolling(14).mean()
-        df_1d['atr'] = (df_1d['high'] - df_1d['low']).rolling(14).mean()
+        # --- ATR & VOLUME (Menggunakan True Range) ---
+        df_1h['atr'] = hitung_true_range_atr(df_1h, 14)
+        df_4h['atr'] = hitung_true_range_atr(df_4h, 14)
+        df_1d['atr'] = hitung_true_range_atr(df_1d, 14)
         df_1h['avg_vol'] = df_1h['volume'].rolling(20).mean().shift(1)
 
         atr_1h_idr = float(df_1h['atr'].iloc[-1] * usd_idr)
