@@ -169,7 +169,7 @@ def hitung_skor_hybrid(
   # 1. Tren Utama EMA (20 Poin)
   if ema9_now > ema21_now:
     score += 20
-    breakdown.append("• Tren EMA Bullish (+20)")
+    breakdown.append("• Tren EMA NAIK (+20)")
 
   # 2. Lonjakan Volume / Liquidity (25 Poin)
   if is_spike_vol_tech or vol_spike_smc:
