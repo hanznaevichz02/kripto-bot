@@ -1,8 +1,8 @@
 """
 ========================================================
-   KRIPTO BOT — Smart Money Edition (Main Scanner)
-   Versi: 3.9.3 (Synced, Stabilized, Min RRR 1.5x Filter)
-   SPOT MARKET
+    KRIPTO BOT — Smart Money Edition (Main Scanner)
+    Versi: 3.9.4 (Scalping/Swing, Min RRR 1.2x & Fee/Tax Guard 1.3%)
+    SPOT MARKET
 ========================================================
 """
 
@@ -35,7 +35,8 @@ logger = logging.getLogger("CryptoBot")
 # ============================================================
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-MIN_RRR_THRESHOLD = 1.5  # Batas minimum RRR agar sinyal layak dikirim
+MIN_RRR_THRESHOLD = 1.2      # Batas minimum RRR disesuaikan untuk scalping/swing pendek
+MIN_PROFIT_PCT_THRESHOLD = 1.3 # Target profit minimal untuk cover fee transaksi dan pajak
 
 PORTFOLIO: Dict[str, Dict[str, float]] = {
     'BTC/USDT': {'buy_price_idr': 1_311_140_722, 'amount': 0.00076261},
@@ -76,10 +77,10 @@ BULLISH_SIGNAL_TYPES = {'BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT'}
 DESKRIPSI = {
     'BULL_SWEEP':     ("HARGA AKAN NAIK", "Bandar sapu SL ritel disertai FVG, siap loncat naik."),
     'BEAR_SWEEP':     ("HARGA AKAN TURUN", "Bandar jebak ritel beli, siap dump."),
-    'BULL_OB':        ("ZONA BELI BANDAR", "Harga kembali ke area demand institusi + FVG."),
-    'BEAR_OB':        ("ZONA JUAL BANDAR", "Harga menyentuh area supply institusi."),
-    'AKUMULASI':      ("AKUMULASI WHALE", "Volume besar, spread sempit (Nampung barang)."),
-    'DISTRIBUSI':     ("DISTRIBUSI WHALE", "Volume besar, spread sempit (Jualan barang)."),
+    'BULL_OB':         ("ZONA BELI BANDAR", "Harga kembali ke area demand institusi + FVG."),
+    'BEAR_OB':         ("ZONA JUAL BANDAR", "Harga menyentuh area supply institusi."),
+    'AKUMULASI':       ("AKUMULASI WHALE", "Volume besar, spread sempit (Nampung barang)."),
+    'DISTRIBUSI':      ("DISTRIBUSI WHALE", "Volume besar, spread sempit (Jualan barang)."),
     'BULL_BREAKOUT':  ("BREAKOUT VOLUME", "Modal besar jebol atap ke atas + FVG."),
     'BEAR_BREAKOUT':  ("BEAR_BREAKOUT", "Modal besar jebol lantai ke bawah."),
 }
@@ -266,6 +267,7 @@ def analisa(
     risk_buy = max(harga_idr - sl_buy, 1.0)
     reward_buy = max(tp_buy - harga_idr, 0.0)
     rrr_buy = round(reward_buy / risk_buy, 2)
+    profit_pct = round((reward_buy / harga_idr) * 100, 2)
 
     skor_dasar = 50.0
     if trend_4h_bull: skor_dasar += 15.0
@@ -285,6 +287,7 @@ def analisa(
         'sl_buy': sl_buy, 'tp_buy': tp_buy,
         'sl_sell': sl_sell, 'tp_sell': tp_sell,
         'rrr': rrr_buy, 
+        'profit_pct': profit_pct,
         'high_price': latest_c['high'] * usd_idr, 
         'low_price': latest_c['low'] * usd_idr,
         'skor': skor_final, 
@@ -361,6 +364,7 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
         f"  • {rm_label_1} : {rm_val_1}\n"
         f"  • {rm_label_2} : {rm_val_2}\n"
         f"  • RRR Ratio : {s.get('rrr', 0.0)::.2f}x\n"
+        f"  • Target %  : {s.get('profit_pct', 0.0):.2f}% (Min {MIN_PROFIT_PCT_THRESHOLD}%)\n"
         f"</code>\n"
         f"🎯 <b>ACTION PLAN :</b> {s['aksi']}\n"
         f"💡 <b>Insight    :</b> {ket}"
@@ -472,12 +476,21 @@ async def scan_asset(
             is_porto = symbol in PORTFOLIO
 
             if is_bullish:
-                if hasil['rrr'] < MIN_RRR_THRESHOLD:
-                    logger.info(f"🚫 {symbol}: Sinyal {hasil['tipe']} diabaikan karena RRR ({hasil['rrr']}x) di bawah batas minimum ({MIN_RRR_THRESHOLD}x).")
+                # Validasi Filter Scalping: RRR minimal 1.2x DAN Target Profit minimal 1.3% (Fee & Tax Guard)
+                if hasil['rrr'] < MIN_RRR_THRESHOLD or hasil.get('profit_pct', 0.0) < MIN_PROFIT_PCT_THRESHOLD:
+                    logger.info(
+                        f"🚫 {symbol}: Sinyal {hasil['tipe']} diabaikan karena "
+                        f"RRR ({hasil['rrr']}x < {MIN_RRR_THRESHOLD}x) atau "
+                        f"Profit Target ({hasil.get('profit_pct', 0.0)}% < {MIN_PROFIT_PCT_THRESHOLD}%)."
+                    )
                     return None
 
                 hasil['symbol'] = symbol
-                logger.info(f"🎯 Kandidat BELI: {symbol} ({hasil['tipe']}) | Skor: {hasil['skor']} | Sudut: {hasil['sudut']:.2f}° | RRR: {hasil['rrr']:.2f}x (Lolos Filter)")
+                logger.info(
+                    f"🎯 Kandidat BELI: {symbol} ({hasil['tipe']}) | "
+                    f"Skor: {hasil['skor']} | Sudut: {hasil['sudut']:.2f}° | "
+                    f"RRR: {hasil['rrr']:.2f}x | Profit: {hasil['profit_pct']:.2f}% (Lolos Filter)"
+                )
                 return hasil
 
             elif is_porto:
@@ -538,9 +551,13 @@ async def main():
 
             pesan = format_pesan(best_signal['symbol'], best_signal)
             await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
-            logger.info(f"✅ Terkirim: {best_signal['symbol']} (Sudut: {best_signal['sudut']:.2f}° | Skor: {best_signal['skor']} | RRR: {best_signal['rrr']:.2f}x)")
+            logger.info(
+                f"✅ Terkirim: {best_signal['symbol']} "
+                f"(Sudut: {best_signal['sudut']:.2f}° | Skor: {best_signal['skor']} | "
+                f"RRR: {best_signal['rrr']:.2f}x | Profit: {best_signal['profit_pct']:.2f}%)"
+            )
         else:
-            logger.info("— Tidak ada sinyal BELI yang valid (memenuhi syarat RRR >= 1.5x) pada siklus ini.")
+            logger.info("— Tidak ada sinyal BELI yang valid (memenuhi syarat RRR >= 1.2x & Profit >= 1.3%) pada siklus ini.")
 
         signal_export = {
             "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
@@ -553,7 +570,8 @@ async def main():
             "low_price": best_signal['low_price'] if best_signal else 0.0,
             "sl_price": best_signal['sl_buy'] if best_signal else 0.0,
             "tp_price": best_signal['tp_buy'] if best_signal else 0.0,
-            "rrr": best_signal.get('rrr', 0.0) if best_signal else 0.0
+            "rrr": best_signal.get('rrr', 0.0) if best_signal else 0.0,
+            "profit_pct": best_signal.get('profit_pct', 0.0) if best_signal else 0.0
         }
 
         with open("signal_main.json", "w") as f:
