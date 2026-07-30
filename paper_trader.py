@@ -1,7 +1,7 @@
 """
 ========================================================
-    KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading)
-    Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, FVG, & Paper Trading
+    KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading) v4.4
+    Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, FVG, MA Inflection/Squeeze, & Paper Trading
 ========================================================
 """
 
@@ -110,7 +110,7 @@ def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 20) -> dict:
     return {'swing_high': swing_high, 'swing_low': swing_low}
 
 def hitung_skor_hybrid(ema9_now, ema21_now, is_spike_vol_tech, vol_spike_smc,
-                        golden_cross, pullback_bounce, bull_sweep_smc,
+                        golden_cross, pullback_bounce, inflection_entry, bull_sweep_smc,
                         harga_idr, sl_price, tp_price, funding_rate=None):
     score = 0
     breakdown = []
@@ -132,6 +132,9 @@ def hitung_skor_hybrid(ema9_now, ema21_now, is_spike_vol_tech, vol_spike_smc,
     elif pullback_bounce:
         score += 25
         breakdown.append("• Pullback Bounce Konfirmasi (+25)")
+    elif inflection_entry:
+        score += 25
+        breakdown.append("• MA Inflection / Squeeze (+25)")
 
     if bull_sweep_smc:
         score += 30
@@ -203,13 +206,11 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
         upper_wick    = c['high'] - max(c['close'], c['open'])
         vol_spike_smc = c['volume'] > (avg_vol_smc * VOL_MULTIPLIER_SMC)
 
-        # FIX: Tambahkan validasi penutupan candle dan ketebalan body
         tutup_hijau_smc = c['close'] > c['open']
         tutup_merah_smc = c['close'] < c['open']
         body_size       = abs(c['close'] - c['open'])
         is_panic_dump   = tutup_merah_smc and (body_size > candle_range * 0.5)
 
-        # Bull Sweep Wajib Penutupan HIJAU dan Bukan Panic Dump
         bull_sweep_smc = bool(
             (lower_wick > candle_range * 0.35) and 
             vol_spike_smc and 
@@ -218,7 +219,6 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
             (c['close'] > p['low'])
         )
         
-        # Bear Sweep Wajib Penutupan MERAH
         bear_sweep_smc = bool(
             (upper_wick > candle_range * 0.35) and 
             vol_spike_smc and 
@@ -226,10 +226,10 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
             (c['close'] < p['high'])
         )
 
-        # 2. TEKNIKAL LOGIC
-        df_1h['ema9']         = df_1h['close'].ewm(span=9, adjust=False).mean()
-        df_1h['ema21']        = df_1h['close'].ewm(span=21, adjust=False).mean()
-        df_1h['avg_vol_tech'] = df_1h['volume'].rolling(window=3).mean().shift(1)
+        # 2. TEKNIKAL LOGIC & MA INFLECTION / SQUEEZE (PATAHAN MOMENTUM)
+        df_1h['ema9']          = df_1h['close'].ewm(span=9, adjust=False).mean()
+        df_1h['ema21']         = df_1h['close'].ewm(span=21, adjust=False).mean()
+        df_1h['avg_vol_tech']  = df_1h['volume'].rolling(window=3).mean().shift(1)
 
         is_spike_vol_tech = bool(c['volume'] > (df_1h['avg_vol_tech'].iloc[curr_idx] * VOL_MULTIPLIER_TECH))
 
@@ -241,8 +241,6 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
         ema21_prev     = df_1h['ema21'].iloc[prev_idx]
 
         golden_cross = bool((ema9_prev < ema21_prev) and (ema9_now > ema21_now) and is_spike_vol_tech and is_sudut_tajam)
-        
-        # Death Cross dimatikan total sesuai instruksi (tidak dipakai untuk exit)
         death_cross  = False
 
         tren_bullish    = ema9_now > ema21_now
@@ -252,7 +250,20 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
         vol_oke_tech    = c['volume'] > df_1h['avg_vol_tech'].iloc[curr_idx]
         pullback_bounce = bool(tren_bullish and sentuh_ema21 and tutup_hijau and tutup_atas_ema9 and vol_oke_tech)
 
-        tech_entry_signal = golden_cross or pullback_bounce
+        # Deteksi Patahan / Inflection Point & Squeeze MA
+        df_1h['ema_spread'] = (df_1h['ema9'] - df_1h['ema21']).abs()
+        spread_now = df_1h['ema_spread'].iloc[curr_idx]
+        spread_prev = df_1h['ema_spread'].iloc[prev_idx]
+        spread_prev2 = df_1h['ema_spread'].iloc[prev_idx-1]
+
+        slope_now_val = df_1h['ema9'].iloc[curr_idx] - df_1h['ema9'].iloc[prev_idx]
+        slope_prev_val = df_1h['ema9'].iloc[prev_idx] - df_1h['ema9'].iloc[prev_idx-1]
+        is_inflection_bottom = bool((slope_prev_val < 0) and (slope_now_val >= 0))
+        is_ma_squeeze = bool((spread_prev < spread_prev2) and (spread_now > spread_prev) and (spread_now < (df_1h['close'].iloc[curr_idx] * 0.003)))
+
+        inflection_entry = bool(tren_bullish and (is_inflection_bottom or is_ma_squeeze) and vol_oke_tech)
+
+        tech_entry_signal = golden_cross or pullback_bounce or inflection_entry
 
         # SWING 4H
         swing = deteksi_swing_4h(df_4h, window=7)
@@ -269,16 +280,17 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
         futures_symbol = FUTURES_MAP.get(symbol)
         funding_rate = get_funding_rate(exchange_futures, futures_symbol) if futures_symbol else None
 
-        # SKORING TERINTEGRASI FUNDING RATE
+        # SKORING TERINTEGRASI FUNDING RATE & INFLECTION
         score, rrr, breakdown = hitung_skor_hybrid(
             ema9_now, ema21_now, is_spike_vol_tech, vol_spike_smc,
-            golden_cross, pullback_bounce, bull_sweep_smc,
+            golden_cross, pullback_bounce, inflection_entry, bull_sweep_smc,
             harga_idr, sl_bullish, tp_bullish, funding_rate
         )
 
         pemicu_list = []
         if golden_cross: pemicu_list.append("Golden Cross")
         if pullback_bounce: pemicu_list.append("Pullback Bounce")
+        if inflection_entry: pemicu_list.append("MA Inflection / Squeeze")
         if bull_sweep_smc: pemicu_list.append("SMC Bull Sweep")
         trigger_str = " + ".join(pemicu_list) if pemicu_list else "Monitoring"
 
@@ -291,7 +303,7 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
             "sl_price": float(sl_bullish),
             "tp_price": float(tp_bullish),
             "is_entry": (tech_entry_signal or bull_sweep_smc),
-            "is_emergency_exit": bear_sweep_smc, # Death cross dimatikan, emergency exit hanya menyisakan SMC Bear Sweep
+            "is_emergency_exit": bear_sweep_smc,
             "emerg_reason": "SMC Bear Sweep" if bear_sweep_smc else "",
             "trigger_str": trigger_str,
             "score": score,
@@ -304,9 +316,8 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
 
 # --- MAIN EXECUTOR ---
 async def main():
-    print("DEBUG: Menjalankan Paper Trader Hybrid Multi-Asset Scanner (v4.3.1 - Anti Trap)...")
+    print("DEBUG: Menjalankan Paper Trader Hybrid Multi-Asset Scanner (v4.4 - Inflection/Squeeze Edition)...")
     
-    # Inisialisasi Kucoin Spot & Futures
     exchange_spot = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
     exchange_futures = ccxt.kucoinfutures({'enableRateLimit': True, 'timeout': 30000})
     
@@ -316,7 +327,7 @@ async def main():
         print(f"Gagal memuat market: {e}")
         return
 
-    bot     = Bot(token=TOKEN)
+    bot       = Bot(token=TOKEN)
     usd_idr = get_usd_idr()
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
     state   = load_state()
@@ -373,7 +384,6 @@ async def main():
                 stats = state["stats"]
                 wr = (stats["wins"] / stats["total_trades"]) * 100 if stats["total_trades"] > 0 else 0
                 
-                # Notif Telegram KHUSUS EXIT (Format HTML)
                 msg = (
                     f"🧪 <b>[PAPER TRADING - HYBRID EXIT]</b> {pair_name}\n"
                     f"──────────────────────────────\n"
@@ -405,10 +415,8 @@ async def main():
             if res["is_entry"] and res["score"] >= MIN_SCORE_ENTRY:
                 candidates.append(res)
 
-    # Urutkan seluruh hasil scan berdasarkan skor tertinggi
     scanned_summary.sort(key=lambda x: x["score"], reverse=True)
 
-    # Simpan ringkasan sinyal ke signal_agr.json
     signal_payload = {
         "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
         "top_signals": scanned_summary[:3],
@@ -417,7 +425,6 @@ async def main():
     save_signal(signal_payload)
     print("    — Hybrid Scanner: Berhasil memperbarui file signal_agr.json.")
 
-    # KUNCI POSISI: Jika ada posisi aktif, tidak boleh buka posisi baru
     if state.get("active_position") is not None:
         print("    — Hybrid Scanner: Kunci 1 Open Position Aktif. Mengabaikan eksekusi entry baru.")
         return
@@ -426,13 +433,12 @@ async def main():
         print("    — Hybrid Scanner: Tidak ada koin yang lolos kriteria minimum skor entry.")
         return
 
-    # Sort candidates untuk eksekusi entry juara #1
     candidates.sort(key=lambda x: x["score"], reverse=True)
     winner = candidates[0]
 
     available_cash = state["cash_idr"]
     if available_cash >= 100_000:
-        amount = available_cash / winner["harga_idr"]  # Beli tanpa potong fee di awal
+        amount = available_cash / winner["harga_idr"] 
         state["active_position"] = {
             "symbol": winner["symbol"],
             "pair_name": winner["pair_name"],
@@ -447,7 +453,6 @@ async def main():
 
         rincian_skor = "\n".join(winner["breakdown"])
         
-        # Notif Telegram KHUSUS ENTRY (Format HTML)
         msg = (
             f"🧪 <b>[PAPER TRADING - HYBRID ENTRY]</b> {winner['pair_name']}\n"
             f"──────────────────────────────\n"
