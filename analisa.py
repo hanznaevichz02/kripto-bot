@@ -1,7 +1,7 @@
 """
 ========================================================
-    KRIPTO BOT — Analisa Simpel, Dinamis & Presisi Layout (v5.2 FVG & Funding Rate)
-    Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, FVG, Funding Rate & Presisi Risk Mgt
+    KRIPTO BOT — Analisa Simpel, Dinamis & Presisi Layout (v5.3 Live Trigger)
+    Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, FVG, Funding Rate & Real-Time Snapshot
 ========================================================
 """
 
@@ -99,8 +99,7 @@ def hitung_skor_smc(choch: bool, bos: bool, mitigation: bool, fvg: bool, rrr: fl
     return min(score, 100), breakdown
 
 def run_analysis():
-    print(f"DEBUG: Memulai analisa hybrid SMC futures untuk {SYMBOL}...")
-    # Menggunakan defaultType 'swap' untuk akses data Futures & Funding Rate
+    print(f"DEBUG: Memulai analisa hybrid SMC futures real-time untuk {SYMBOL}...")
     exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'swap'}, 'timeout': 30000})
     
     try:
@@ -133,7 +132,6 @@ def run_analysis():
         status_fr = f"{fr_persen:.4f}% (Normal / Seimbang ⚖️)"
 
     try:
-        # Menarik data 1H, 4H, dan 1D
         bars_1h = exchange.fetch_ohlcv(SYMBOL, timeframe='1h', limit=50)
         bars_4h = exchange.fetch_ohlcv(SYMBOL, timeframe='4h', limit=50)
         bars_1d = exchange.fetch_ohlcv(SYMBOL, timeframe='1d', limit=30)
@@ -142,18 +140,17 @@ def run_analysis():
         df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
         df_1d = pd.DataFrame(bars_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
 
-        # Harga saat ini (Update realtime)
+        # Harga saat ini (Update realtime dari tick/close berjalan)
         harga_sekarang = float(df_4h['close'].iloc[-1] * usd_idr)
 
         # --- HITUNG ATR 1H UNTUK BUFFER SL/TP DINAMIS ---
         df_1h['atr'] = (df_1h['high'] - df_1h['low']).rolling(14).mean()
         df_1h['avg_vol'] = df_1h['volume'].rolling(20).mean().shift(1)
         
-        curr_1h = df_1h.iloc[-2]
-        atr_idr = float(curr_1h['atr'] * usd_idr)
+        atr_idr = float(df_1h['atr'].iloc[-1] * usd_idr)
 
         # --- PIVOT POINTS 4H ---
-        curr_4h = -2
+        curr_4h = -1 # Menggunakan candle aktif/berjalan
         high_4h, low_4h, close_4h = df_4h['high'].iloc[curr_4h], df_4h['low'].iloc[curr_4h], df_4h['close'].iloc[curr_4h]
         pivot_4h = (high_4h + low_4h + close_4h) / 3
         r1_4h_idr = float(((2 * pivot_4h) - low_4h) * usd_idr)
@@ -162,7 +159,7 @@ def run_analysis():
         s2_4h_idr = float((pivot_4h - (high_4h - low_4h)) * usd_idr)
 
         # --- PIVOT POINTS 1D ---
-        curr_1d = -2 
+        curr_1d = -1 
         high_1d, low_1d, close_1d = df_1d['high'].iloc[curr_1d], df_1d['low'].iloc[curr_1d], df_1d['close'].iloc[curr_1d]
         pivot_1d = (high_1d + low_1d + close_1d) / 3
         r1_1d_idr = float(((2 * pivot_1d) - low_1d) * usd_idr)
@@ -170,14 +167,14 @@ def run_analysis():
         s1_1d_idr = float(((2 * pivot_1d) - high_1d) * usd_idr)
         s2_1d_idr = float((pivot_1d - (high_1d - low_1d)) * usd_idr)
 
-        # --- INDIKATOR TREN (EMA 9 & 21) ---
+        # --- INDIKATOR TREN (EMA 9 & 21 + Live Price Check) ---
         df_4h['ema9'] = df_4h['close'].ewm(span=9, adjust=False).mean()
         df_4h['ema21'] = df_4h['close'].ewm(span=21, adjust=False).mean()
         df_1d['ema9'] = df_1d['close'].ewm(span=9, adjust=False).mean()
         df_1d['ema21'] = df_1d['close'].ewm(span=21, adjust=False).mean()
 
-        is_bullish_4h = df_4h['ema9'].iloc[-1] > df_4h['ema21'].iloc[-1]
-        is_bullish_1d = df_1d['ema9'].iloc[-1] > df_1d['ema21'].iloc[-1]
+        is_bullish_4h = (df_4h['ema9'].iloc[-1] > df_4h['ema21'].iloc[-1]) or (df_4h['close'].iloc[-1] > df_4h['ema9'].iloc[-1])
+        is_bullish_1d = (df_1d['ema9'].iloc[-1] > df_1d['ema21'].iloc[-1]) or (df_1d['close'].iloc[-1] > df_1d['ema9'].iloc[-1])
 
         tren_4h_teks = "NAIK 🟢" if is_bullish_4h else "TURUN 🔴"
         tren_1d_teks = "NAIK 🟢" if is_bullish_1d else "TURUN 🔴"
@@ -223,11 +220,12 @@ def run_analysis():
         else:
             status_rsi = f"Wajar/Normal ({rsi_4h:.0f})"
 
-        # --- PENDETEKSI LOGIKA KUANTITATIF SMC & FVG ---
-        choch = bool(curr_1h['close'] > curr_1h['open'] and curr_1h['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.5))
-        bos = bool(curr_1h['close'] > df_1h['high'].iloc[-5:-2].max())
+        # --- PENDETEKSI KUANTITATIF SMC & FVG (Real-time Live Candle) ---
+        curr_1h_live = df_1h.iloc[-1]
+        choch = bool(curr_1h_live['close'] > curr_1h_live['open'] and curr_1h_live['volume'] > (df_1h['avg_vol'].iloc[-1] * 1.5))
+        bos = bool(curr_1h_live['close'] > df_1h['high'].iloc[-5:-1].max())
         mitigation = bool((df_4h['low'].iloc[-1] * usd_idr) <= (s1_4h_idr * 1.005))
-        vol_spike = bool(curr_1h['volume'] > (df_1h['avg_vol'].iloc[-2] * 1.8))
+        vol_spike = bool(curr_1h_live['volume'] > (df_1h['avg_vol'].iloc[-1] * 1.8))
         
         fvg_type, fvg_min, fvg_max = cek_fvg(df_1h, usd_idr)
         if fvg_type == "Bullish":
@@ -245,21 +243,21 @@ def run_analysis():
 
         # --- LOGIKA TEKS SMC 4H ---
         if is_bullish_4h:
-            smc_4h_k = f"Tren 4H NAIK. Skor Setup ({skor_smc}/100) mengonfirmasi dorongan."
-            smc_4h_r = "Beli bertahap saat koreksi tipis di area Lantai 1 4H."
+            smc_4h_k = f"Tren 4H NAIK/Rebound. Live Price merespons area support."
+            smc_4h_r = "Lanjut dorongan naik bertahap menuju target TP."
         else:
             smc_4h_k = f"Tren 4H TURUN. Tekanan jual terasa, Skor Setup ({skor_smc}/100)."
             smc_4h_r = "Wait & See dulu. Tunggu pantulan aman dekat Lantai 1 4H."
 
         # --- LOGIKA TEKS SMC 1D ---
         if is_bullish_1d:
-            smc_1d_k = "Tren makro 1D NAIK kuat. Bandar makro menjaga harga."
-            smc_1d_r = "Bagus untuk posisi Swing. Struktur makro sangat sehat."
+            smc_1d_k = "Tren makro 1D NAIK kuat. Struktur makro sehat."
+            smc_1d_r = "Bagus untuk posisi Swing."
         else:
-            smc_1d_k = "Tren makro 1D TURUN. Bandar makro cenderung distribusi/jual."
+            smc_1d_k = "Tren makro 1D TURUN. Bandar makro cenderung distribusi."
             smc_1d_r = "Hindari hold terlalu lama. Utamakan quick trade saja."
 
-        # --- FORMATTING PARAGRAF RAPI (TITIK DUA SEJAJAR DI KARAKTER 13) ---
+        # --- FORMATTING PARAGRAF RAPI ---
         smc_4h_k_fmt  = rapihkan_teks("• Kondisi   : ", smc_4h_k)
         smc_4h_r_fmt  = rapihkan_teks("• Rekom     : ", smc_4h_r)
         smc_4h_sl_fmt = rapihkan_teks("• Target SL : ", f"Rp {sl_4h_idr:,.0f}")
