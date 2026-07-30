@@ -1,7 +1,7 @@
 """
 ========================================================
-    KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading) v4.4
-    Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, FVG, MA Inflection/Squeeze, & Paper Trading
+    KRIPTO BOT — Hybrid Aggressive Edition (Paper Trading) v4.5
+    Fungsi  : Integrasi Skor SMC Kuantitatif, ATR Buffer, Volume Spike, FVG, MA Inflection/Squeeze, & Smart TP Filter
 ========================================================
 """
 
@@ -350,18 +350,24 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
 
     tech_entry_signal = golden_cross or pullback_bounce or inflection_entry
 
-    # SWING 4H
+    # SWING 4H & SMART TP/SL FILTER (OPTIMIZED v4.5)
     swing = deteksi_swing_4h(df_4h, window=20)
     swing_high_idr = swing["swing_high"] * usd_idr
     swing_low_idr = swing["swing_low"] * usd_idr
 
     sl_bullish = swing_low_idr - (0.5 * atr_idr)
-    tp_atr_dekat = harga_idr + (2.0 * atr_idr)
 
-    tp_bullish = min(swing_high_idr, harga_idr + (2.5 * atr_idr))
+    # Kriteria TP Cerdas: Tidak terlalu cepat exit saat tren prospek (min 3% gross), namun tidak terlalu lambat
+    MIN_GROSS_TP_PCT = 0.03  # Minimal 3% di atas harga entry untuk menutup fee 1.3% + profit bersih wajar
+    min_tp_by_pct = harga_idr * (1.0 + MIN_GROSS_TP_PCT)
+    min_tp_by_atr = harga_idr + (3.5 * atr_idr)  # Beri ruang napas lebih panjang (3.5x ATR)
 
-    if tp_bullish <= harga_idr * 1.015:
-      tp_bullish = harga_idr + (2.0 * atr_idr)
+    # Menentukan target dasar yang optimal
+    target_dasar_tp = max(min_tp_by_pct, min_tp_by_atr)
+    
+    # Batasi dengan Swing High 4H jika posisinya rasional, tetapi berikan fleksibilitas jika tren kuat
+    tp_bullish = max(target_dasar_tp, min(swing_high_idr, harga_idr + (5.0 * atr_idr)))
+
     if sl_bullish >= harga_idr * 0.985:
       sl_bullish = harga_idr - (1.8 * atr_idr)
 
@@ -424,8 +430,8 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
 # --- MAIN EXECUTOR ---
 async def main():
   logging.info(
-      "Menjalankan Paper Trader Hybrid Multi-Asset Scanner (v4.4 -"
-      " Inflection/Squeeze Edition)..."
+      "Menjalankan Paper Trader Hybrid Multi-Asset Scanner (v4.5 -"
+      " Smart TP Edition)..."
   )
 
   exchange_spot = ccxt.kucoin({
@@ -478,7 +484,7 @@ async def main():
           exit_reason = "STOP LOSS (SWING 4H) 🛑"
           exit_price = sl
         elif is_win:
-          exit_reason = "TAKE PROFIT (SWING 4H) 🎯"
+          exit_reason = "TAKE PROFIT (SMART TARGET) 🎯"
           exit_price = tp
         else:
           exit_reason = f"EMERGENCY EXIT ({data['emerg_reason']}) ⚠️"
