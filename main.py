@@ -10,6 +10,8 @@ import os
 import json
 import asyncio
 import logging
+import math
+import numpy as np
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 
@@ -83,7 +85,39 @@ DESKRIPSI = {
 }
 
 # ============================================================
-# KALKULASI INDIKATOR, SMC, FVG & SUDUT TREN
+# ASYNC API HELPERS
+# ============================================================
+
+async def get_usd_idr(client: httpx.AsyncClient) -> float:
+    try:
+        r = await client.get("https://indodax.com/api/ticker/usdtidr", timeout=5.0)
+        return float(r.json()['ticker']['last'])
+    except Exception as e:
+        logger.warning(f"Gagal mengambil kurs USD/IDR ({e}), menggunakan fallback Rp 18,000")
+        return 18000.0
+
+async def get_fear_greed(client: httpx.AsyncClient) -> Dict[str, Any]:
+    try:
+        r = await client.get("https://api.alternative.me/fng/?limit=1", timeout=5.0)
+        d = r.json()['data'][0]
+        return {'value': int(d['value']), 'label': d['value_classification']}
+    except Exception as e:
+        logger.warning(f"Gagal mengambil Fear & Greed ({e}), menggunakan fallback Neutral")
+        return {'value': 50, 'label': 'Neutral'}
+
+async def get_funding_rate(exchange_futures: ccxt.Exchange, futures_symbol: str) -> Optional[float]:
+    try:
+        info = await exchange_futures.fetch_funding_rate(futures_symbol)
+        return float(info.get('fundingRate', 0))
+    except Exception as e:
+        logger.warning(f"Funding Rate error [{futures_symbol}]: {e}")
+        return None
+
+def format_rp(nilai: float) -> str:
+    return f"Rp {nilai:,.0f}"
+
+# ============================================================
+# KALKULASI INDIKATOR, SMC, FVG & SUDUT TREN (TF 1H)
 # ============================================================
 
 def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
@@ -92,19 +126,18 @@ def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
         (df['high'] - df['close'].shift()).abs(),
         (df['low']  - df['close'].shift()).abs(),
     ], axis=1).max(axis=1)
-    return float(tr.rolling(period).mean().iloc[-2]) # Candle tertutup
+    return float(tr.rolling(period).mean().iloc[-2])
 
 def hitung_volume_delta(df: pd.DataFrame) -> pd.Series:
     hl = (df['high'] - df['low']).replace(0, 1e-9)
     return df['volume'] * ((df['close'] - df['open']) / hl)
 
 def hitung_sudut(df: pd.DataFrame, period: int = 10) -> float:
-    """Menghitung sudut kemiringan regresi linear harga (dalam derajat)"""
+    """Menghitung sudut kemiringan regresi linear harga (dalam derajat) pada TF 1H"""
     if len(df) < period:
         return 0.0
     y = df['close'].iloc[-period:].values
     x = np.arange(period)
-    # Normalisasi persentase perubahan agar adil antar koin
     y_norm = (y - y[0]) / (y[0] + 1e-9) * 100
     slope, _ = np.polyfit(x, y_norm, 1)
     angle = math.degrees(math.atan(slope))
@@ -140,7 +173,6 @@ def deteksi_order_block(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]
     return result
 
 def deteksi_fvg(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]]]:
-    """Mendeteksi Fair Value Gap (FVG) pada 3 candle terakhir (i-2, i-1, i)"""
     result = {'bullish_fvg': None, 'bearish_fvg': None}
     if len(df) < 5:
         return result
@@ -155,7 +187,7 @@ def deteksi_fvg(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]]]:
     return result
 
 # ============================================================
-# ANALISA UTAMA SCANNER (DENGAN ANTI-FAKE SWEEP & FVG)
+# ANALISA UTAMA SCANNER
 # ============================================================
 
 def analisa(
@@ -235,7 +267,6 @@ def analisa(
     reward_buy = max(tp_buy - harga_idr, 0.0)
     rrr_buy = round(reward_buy / risk_buy, 2)
 
-    # --- SISTEM SKORING DINAMIS (0 - 100) ---
     skor_dasar = 50.0
     if trend_4h_bull: skor_dasar += 15.0
     if vol_ultra: skor_dasar += 15.0
@@ -282,7 +313,7 @@ def analisa(
     return None
 
 # ============================================================
-# TELEGRAM FORMATTER & SENDER (CLEAN HTML FORMAT)
+# TELEGRAM FORMATTER & SENDER
 # ============================================================
 
 def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
@@ -405,7 +436,7 @@ async def kirim_laporan(bot: Bot, exchange: ccxt.Exchange, usd_idr: float, fear_
     await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
 
 # ============================================================
-# WORKER SCANNER PER ASSET (PARALLEL)
+# WORKER SCANNER PER ASSET
 # ============================================================
 
 async def scan_asset(
@@ -441,7 +472,6 @@ async def scan_asset(
             is_porto = symbol in PORTFOLIO
 
             if is_bullish:
-                # --- FILTER MUTLAK MINIMAL RRR ---
                 if hasil['rrr'] < MIN_RRR_THRESHOLD:
                     logger.info(f"🚫 {symbol}: Sinyal {hasil['tipe']} diabaikan karena RRR ({hasil['rrr']}x) di bawah batas minimum ({MIN_RRR_THRESHOLD}x).")
                     return None
@@ -499,10 +529,8 @@ async def main():
         hasil_scan = await asyncio.gather(*tasks)
         kumpulan_sinyal = [s for s in hasil_scan if s is not None]
 
-        # --- RANKING KANDIDAT & PEMILIHAN 1 DENGAN SUDUT PALING EKSTRIM ---
         best_signal = None
         if kumpulan_sinyal:
-            # Urutkan berdasarkan sudut mutlak paling ekstrim (tertajam) sebagai prioritas utama
             kumpulan_sinyal.sort(key=lambda x: (abs(x.get('sudut', 0.0)), x.get('skor', 0.0), x.get('rrr', 0.0)), reverse=True)
             best_signal = kumpulan_sinyal[0]
 
@@ -514,7 +542,6 @@ async def main():
         else:
             logger.info("— Tidak ada sinyal BELI yang valid (memenuhi syarat RRR >= 1.5x) pada siklus ini.")
 
-        # --- EXPORT FILE STATE SINYAL (signal_main.json) ---
         signal_export = {
             "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
             "symbol": best_signal['symbol'] if best_signal else "NONE",
@@ -533,7 +560,6 @@ async def main():
             json.dump(signal_export, f, indent=4)
         logger.info("📄 File signal_main.json berhasil diperbarui.")
 
-        # --- LAPORAN PORTOFOLIO ---
         if now_wib.hour in JAM_LAPORAN and now_wib.minute < 30:
             await kirim_laporan(bot, exchange, usd_idr, fear_greed)
             logger.info("📊 Laporan portofolio terkirim")
