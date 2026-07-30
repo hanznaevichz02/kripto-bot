@@ -37,7 +37,7 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python paper_trade.py
+          python paper_trader.py
 
       # 3. Commit & Push semua file JSON state paper trading ke Repo
       - name: Save Paper Trading States
