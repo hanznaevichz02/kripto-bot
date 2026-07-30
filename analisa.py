@@ -366,7 +366,7 @@ async def main_async():
 
         msg = (
             f"```text\n"
-            f"🔍 [ANALISA SPOT] — {PAIR_NAME}\n"
+            f"🔍 {PAIR_NAME}\n"
             f"----------------------------------\n"
             f"• Harga     : Rp {harga_sekarang:,.0f}\n"
             f"----------------------------------\n"
@@ -404,6 +404,7 @@ async def main_async():
             f"📋 RINCIAN SKOR SETUP (SMC + FVG)\n"
             f"{breakdown_str}\n"
             f"{kesimpulan_teks}\n"
+            f"----------------------------------\n"
             f"{rrr_warning}\n"
             f"```"
         )
