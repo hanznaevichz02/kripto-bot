@@ -83,39 +83,7 @@ DESKRIPSI = {
 }
 
 # ============================================================
-# ASYNC API HELPERS
-# ============================================================
-
-async def get_usd_idr(client: httpx.AsyncClient) -> float:
-    try:
-        r = await client.get("https://indodax.com/api/ticker/usdtidr", timeout=5.0)
-        return float(r.json()['ticker']['last'])
-    except Exception as e:
-        logger.warning(f"Gagal mengambil kurs USD/IDR ({e}), menggunakan fallback Rp 18,000")
-        return 18000.0
-
-async def get_fear_greed(client: httpx.AsyncClient) -> Dict[str, Any]:
-    try:
-        r = await client.get("https://api.alternative.me/fng/?limit=1", timeout=5.0)
-        d = r.json()['data'][0]
-        return {'value': int(d['value']), 'label': d['value_classification']}
-    except Exception as e:
-        logger.warning(f"Gagal mengambil Fear & Greed ({e}), menggunakan fallback Neutral")
-        return {'value': 50, 'label': 'Neutral'}
-
-async def get_funding_rate(exchange_futures: ccxt.Exchange, futures_symbol: str) -> Optional[float]:
-    try:
-        info = await exchange_futures.fetch_funding_rate(futures_symbol)
-        return float(info.get('fundingRate', 0))
-    except Exception as e:
-        logger.warning(f"Funding Rate error [{futures_symbol}]: {e}")
-        return None
-
-def format_rp(nilai: float) -> str:
-    return f"Rp {nilai:,.0f}"
-
-# ============================================================
-# KALKULASI INDIKATOR, SMC & FVG
+# KALKULASI INDIKATOR, SMC, FVG & SUDUT TREN
 # ============================================================
 
 def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
@@ -129,6 +97,18 @@ def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
 def hitung_volume_delta(df: pd.DataFrame) -> pd.Series:
     hl = (df['high'] - df['low']).replace(0, 1e-9)
     return df['volume'] * ((df['close'] - df['open']) / hl)
+
+def hitung_sudut(df: pd.DataFrame, period: int = 10) -> float:
+    """Menghitung sudut kemiringan regresi linear harga (dalam derajat)"""
+    if len(df) < period:
+        return 0.0
+    y = df['close'].iloc[-period:].values
+    x = np.arange(period)
+    # Normalisasi persentase perubahan agar adil antar koin
+    y_norm = (y - y[0]) / (y[0] + 1e-9) * 100
+    slope, _ = np.polyfit(x, y_norm, 1)
+    angle = math.degrees(math.atan(slope))
+    return float(angle)
 
 def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> Dict[str, float]:
     swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
@@ -197,6 +177,7 @@ def analisa(
     latest_c = df_1h.iloc[-1]
     harga_idr = latest_c['close'] * usd_idr
     atr_idr = hitung_atr(df_1h) * usd_idr
+    sudut_tren = hitung_sudut(df_1h)
 
     avg_vol = df_1h['volume'].iloc[-21:-1].median()
     avg_range = (df_1h['high'] - df_1h['low']).iloc[-21:-1].median()
@@ -276,6 +257,7 @@ def analisa(
         'high_price': latest_c['high'] * usd_idr, 
         'low_price': latest_c['low'] * usd_idr,
         'skor': skor_final, 
+        'sudut': sudut_tren,
     }
 
     strength = '🔥🔥🔥' if vol_ultra else '🔥🔥'
@@ -335,6 +317,7 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
         f"  • Trigger : {judul}\n"
         f"  • Tren 4H : {s['trend_4h']}\n"
         f"  • Skor    : {s.get('skor', 0.0)} / 100\n"
+        f"  • Sudut   : {s.get('sudut', 0.0):+.2f}°\n"
         f"  • Harga   : {harga}\n"
         f"------------------------------\n"
         f"[ 2. MARKET METRICS ]\n"
@@ -346,7 +329,7 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
         f"[ 3. RISK MANAGEMENT ]\n"
         f"  • {rm_label_1} : {rm_val_1}\n"
         f"  • {rm_label_2} : {rm_val_2}\n"
-        f"  • RRR Ratio : {s.get('rrr', 0.0):.2f}x\n"
+        f"  • RRR Ratio : {s.get('rrr', 0.0)::.2f}x\n"
         f"</code>\n"
         f"🎯 <b>ACTION PLAN :</b> {s['aksi']}\n"
         f"💡 <b>Insight    :</b> {ket}"
@@ -464,7 +447,7 @@ async def scan_asset(
                     return None
 
                 hasil['symbol'] = symbol
-                logger.info(f"🎯 Kandidat BELI: {symbol} ({hasil['tipe']}) | Skor: {hasil['skor']} | RRR: {hasil['rrr']:.2f}x (Lolos Filter)")
+                logger.info(f"🎯 Kandidat BELI: {symbol} ({hasil['tipe']}) | Skor: {hasil['skor']} | Sudut: {hasil['sudut']:.2f}° | RRR: {hasil['rrr']:.2f}x (Lolos Filter)")
                 return hasil
 
             elif is_porto:
@@ -516,19 +499,18 @@ async def main():
         hasil_scan = await asyncio.gather(*tasks)
         kumpulan_sinyal = [s for s in hasil_scan if s is not None]
 
-        # --- RANKING KANDIDAT (Skor Terbesar -> Tie-Breaker: RRR & Vol Ratio) ---
+        # --- RANKING KANDIDAT & PEMILIHAN 1 DENGAN SUDUT PALING EKSTRIM ---
         best_signal = None
         if kumpulan_sinyal:
-            kumpulan_sinyal.sort(key=lambda x: (x.get('skor', 0.0), x.get('rrr', 0.0), x.get('vol_ratio', 0.0)), reverse=True)
-            top_prospek = kumpulan_sinyal[:2]
+            # Urutkan berdasarkan sudut mutlak paling ekstrim (tertajam) sebagai prioritas utama
+            kumpulan_sinyal.sort(key=lambda x: (abs(x.get('sudut', 0.0)), x.get('skor', 0.0), x.get('rrr', 0.0)), reverse=True)
             best_signal = kumpulan_sinyal[0]
 
-            logger.info(f"📢 Mengirim {len(top_prospek)} sinyal BELI teratas dari {len(kumpulan_sinyal)} kandidat...")
+            logger.info(f"📢 Mengirim 1 sinyal BELI teratas dengan sudut paling ekstrim dari {len(kumpulan_sinyal)} kandidat...")
 
-            for item in top_prospek:
-                pesan = format_pesan(item['symbol'], item)
-                await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
-                logger.info(f"✅ Terkirim: {item['symbol']} (Skor: {item['skor']} | RRR: {item['rrr']:.2f}x)")
+            pesan = format_pesan(best_signal['symbol'], best_signal)
+            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
+            logger.info(f"✅ Terkirim: {best_signal['symbol']} (Sudut: {best_signal['sudut']:.2f}° | Skor: {best_signal['skor']} | RRR: {best_signal['rrr']:.2f}x)")
         else:
             logger.info("— Tidak ada sinyal BELI yang valid (memenuhi syarat RRR >= 1.5x) pada siklus ini.")
 
@@ -538,6 +520,7 @@ async def main():
             "symbol": best_signal['symbol'] if best_signal else "NONE",
             "signal_type": best_signal['tipe'] if best_signal else None,
             "score": best_signal.get('skor', 0.0) if best_signal else 0.0,
+            "angle": best_signal.get('sudut', 0.0) if best_signal else 0.0,
             "current_price": best_signal['harga'] if best_signal else 0.0,
             "high_price": best_signal['high_price'] if best_signal else 0.0,
             "low_price": best_signal['low_price'] if best_signal else 0.0,
