@@ -351,15 +351,17 @@ def analisa_koin_hybrid(exchange_spot, exchange_futures, symbol, usd_idr):
     tech_entry_signal = golden_cross or pullback_bounce or inflection_entry
 
     # SWING 4H
-    swing = deteksi_swing_4h(df_4h, window=21)
+    swing = deteksi_swing_4h(df_4h, window=20)
     swing_high_idr = swing["swing_high"] * usd_idr
     swing_low_idr = swing["swing_low"] * usd_idr
 
     sl_bullish = swing_low_idr - (0.5 * atr_idr)
-    tp_bullish = swing_high_idr
+    tp_atr_dekat = harga_idr + (2.0 * atr_idr)
+
+    tp_bullish = min(swing_high_idr, harga_idr + (2.5 * atr_idr))
 
     if tp_bullish <= harga_idr * 1.015:
-      tp_bullish = harga_idr + (3.5 * atr_idr)
+      tp_bullish = harga_idr + (2.0 * atr_idr)
     if sl_bullish >= harga_idr * 0.985:
       sl_bullish = harga_idr - (1.8 * atr_idr)
 
