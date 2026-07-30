@@ -161,13 +161,24 @@ def deteksi_order_block(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]
 
 def deteksi_fvg(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]]]:
     result = {'bullish_fvg': None, 'bearish_fvg': None}
-    if len(df) < 5: return result
-    c1, c2, c3 = df.iloc[-3], df.iloc[-2], df.iloc[-1]
+    if len(df) < 10: return result
     
-    if c3['low'] > c1['high']:
-        result['bullish_fvg'] = {'high': float(c3['low']), 'low': float(c1['high'])}
-    elif c3['high'] < c1['low']:
-        result['bearish_fvg'] = {'high': float(c1['low']), 'low': float(c3['high'])}
+    # Scan mundur dari 15 candle terakhir untuk mencari FVG aktif terdekat
+    for i in range(len(df) - 1, max(len(df) - 15, 2), -1):
+        c1 = df.iloc[i-2]
+        c3 = df.iloc[i]
+        
+        # Bullish FVG: Low candle 3 > High candle 1
+        if c3['low'] > c1['high'] and result['bullish_fvg'] is None:
+            result['bullish_fvg'] = {'high': float(c3['low']), 'low': float(c1['high'])}
+        
+        # Bearish FVG: High candle 3 < Low candle 1
+        if c3['high'] < c1['low'] and result['bearish_fvg'] is None:
+            result['bearish_fvg'] = {'high': float(c1['low']), 'low': float(c3['high'])}
+            
+        if result['bullish_fvg'] and result['bearish_fvg']:
+            break
+            
     return result
 
 # ============================================================
@@ -250,11 +261,11 @@ def analisa(
     ada_bullish_fvg = fvg['bullish_fvg'] is not None
     ada_bearish_fvg = fvg['bearish_fvg'] is not None
 
-    bull_sweep = (lower_wick > candle_range * 0.35) and vol_spike and (c['close'] >= p['low']) and ada_bullish_fvg
-    bear_sweep = (upper_wick > candle_range * 0.35) and vol_spike and (c['close'] <= p['high']) and ada_bearish_fvg
+    bull_sweep = (lower_wick > candle_range * 0.35) and vol_spike and (c['close'] >= p['low'])
+    bear_sweep = (upper_wick > candle_range * 0.35) and vol_spike and (c['close'] <= p['high'])
     is_absorption = vol_spike and (body_size < avg_range * 0.5)
 
-    bull_breakout = (c['close'] > c['open']) and (body_size > avg_range * 1.0) and vol_spike and ada_bullish_fvg
+    bull_breakout = (c['close'] > c['open']) and (body_size > avg_range * 1.0) and vol_spike
     bear_breakout = (c['close'] < c['open']) and (body_size > avg_range * 1.0) and vol_spike
 
     swing_4h = deteksi_swing_4h(df_4h, window=7)
@@ -279,9 +290,12 @@ def analisa(
     if vol_ultra: skor_dasar += 15.0
     elif vol_spike: skor_dasar += 10.0
     if cvd_naik: skor_dasar += 10.0
-    if ada_bullish_fvg: skor_dasar += 10.0
+    
+    # === FVG SEBAGAI BONUS SKOR ===
+    if ada_bullish_fvg: skor_dasar += 10.0 
+    
     if funding_rate is not None and funding_rate <= 0.0005: skor_dasar += 5.0
-    if is_patahan_ema9_bull: skor_dasar += 5.0 # Ekstra skor jika momentum patah ke atas
+    if is_patahan_ema9_bull: skor_dasar += 5.0 
     
     skor_final = min(round(skor_dasar, 1), 100.0)
 
@@ -295,8 +309,8 @@ def analisa(
         'sl_buy': sl_buy, 'tp_buy': tp_buy,
         'sl_sell': sl_sell, 'tp_sell': tp_sell,
         'rrr': rrr_buy, 'profit_pct': profit_pct,
-        'high_price': latest_c['high'] * usd_idr, 
-        'low_price': latest_c['low'] * usd_idr,
+        'high_price': c['high'] * usd_idr, 
+        'low_price': c['low'] * usd_idr,
         'skor': skor_final, 'sudut': sudut_tren,
     }
 
@@ -318,9 +332,39 @@ def analisa(
         return {**base, 'tipe': 'EMA9_BREAK', 'aksi': '🟢 ENTRY CEPAT (Pra-Golden Cross & CVD Naik)', 'strength': '🔥'}
 
     return None
+    
+# ============================================================
+# FUNGSI ANTI SPAM NOTIF
+# ============================================================
+STATE_FILE = "last_sent_alert.json"
+
+def cek_dan_simpan_duplikasi(symbol: str, signal_type: str) -> bool:
+    """
+    Mengembalikan True jika sinyal INI SUDAH PERNAH DIKIRIM sebelumnya (di-skip).
+    Mengembalikan False jika ini sinyal BARU atau berubah (lanjutkan kirim).
+    """
+    last_data = {}
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f:
+                last_data = json.load(f)
+        except Exception:
+            pass
+
+    if last_data.get(symbol) == signal_type:
+        return True  # Sudah pernah dikirim, abaikan!
+    
+    last_data[symbol] = signal_type
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump(last_data, f, indent=4)
+    except Exception as e:
+        logger.error(f"Gagal menyimpan state alert: {e}")
+        
+    return False
 
 # ============================================================
-# TELEGRAM FORMATTERS
+# TELEGRAM FORMATTERS (PERBAIKAN)
 # ============================================================
 def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
     tipe, harga = s['tipe'], format_rp(s['harga'])
@@ -329,22 +373,25 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
     fr = s['funding_rate']
     if fr is None: fr_str = "N/A"
     elif fr > 0.0005: fr_str = f"+{fr*100:.4f}% (Rawan Dump)"
-    elif fr < -0.0005: fr_str = f"{fr*100:.4f}% (Squeeze)"
+    elif fr < -0.0005: fr_str = f"{fr*100:+.4f}% (Squeeze)"
     else: fr_str = f"{fr*100:+.4f}% (Normal)"
 
     is_bullish = tipe in BULLISH_SIGNAL_TYPES
     if is_bullish:
         rm_label_1, rm_val_1 = "TP (Target)", format_rp(s['tp_buy'])
         rm_label_2, rm_val_2 = "SL (Batas) ", format_rp(s['sl_buy'])
+        rrr_value = s.get('rrr_buy', s.get('rrr', 0.0))  # Ambil RRR buy
     else:
         rm_label_1, rm_val_1 = "Serok Bawah", format_rp(s['tp_sell'])
         rm_label_2, rm_val_2 = "Invalidasi ", format_rp(s['sl_sell'])
+        rrr_value = s.get('rrr_sell', s.get('rrr', 0.0))  # Ambil RRR sell (jika ada)
 
     header = f"🚨 <b>WARNING PORTOFOLIO — {symbol}</b>" if is_porto_alert else f"⚡ <b>QUANT SIGNAL — {symbol}</b>"
     vol_ultra_str = " (ULTRA)" if s.get('vol_ultra') else ""
+    strength_str = f" {s.get('strength', '')}" if s.get('strength') else ""
 
     return (
-        f"{header} {s['strength']}\n"
+        f"{header}{strength_str}\n"
         f"<code>"
         f"[ 1. SIGNAL DETECTION ]\n"
         f"  • Trigger : {judul}\n"
@@ -363,7 +410,7 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
         f"[ 3. RISK MANAGEMENT ]\n"
         f"  • {rm_label_1} : {rm_val_1}\n"
         f"  • {rm_label_2} : {rm_val_2}\n"
-        f"  • RRR Ratio : {s.get('rrr', 0.0):.2f}x\n"
+        f"  • RRR Ratio : {rrr_value:.2f}x\n"
         f"  • Target %  : {s.get('profit_pct', 0.0):.2f}%\n"
         f"</code>\n"
         f"🎯 <b>ACTION PLAN :</b> {s['aksi']}\n"
@@ -494,11 +541,14 @@ async def scan_asset(
                 return hasil
 
             elif is_porto:
+                # CEK ANTI-SPAM UNTUK PORTOFOLIO
+                if cek_dan_simpan_duplikasi(symbol, hasil['tipe']):
+                    logger.info(f"🛡️ Anti-Spam: Warning portofolio {symbol} ({hasil['tipe']}) sama dengan jam lalu. Dilewati.")
+                    return None
+
                 logger.warning(f"🚨 WARNING PORTOFOLIO: {symbol} terdeteksi sinyal JUAL/DUMP ({hasil['tipe']})!")
                 pesan_warning = format_pesan(symbol, hasil, is_porto_alert=True)
                 await bot.send_message(chat_id=CHAT_ID, text=pesan_warning, parse_mode='HTML')
-                return None
-            else:
                 return None
 
         except Exception as e:
@@ -510,7 +560,34 @@ async def scan_asset(
 # ============================================================
 async def main():
     if not TOKEN or not CHAT_ID: return
+    
+    now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
 
+    # 1. FAIL-SAFE: Tulis sinyal kosong (reset) SEBELUM melakukan apa pun
+    default_signal = {
+        "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
+        "symbol": "NONE",
+        "signal_type": None,
+        "score": 0.0,
+        "angle": 0.0,
+        "current_price": 0.0,
+        "high_price": 0.0,
+        "low_price": 0.0,
+        "sl_price": 0.0,
+        "tp_price": 0.0,
+        "rrr": 0.0,
+        "profit_pct": 0.0,
+        "status": "SCANNING_OR_ERROR" # Penanda tambahan agar bot sebelah tahu file sedang di-reset
+    }
+    
+    try:
+        with open("signal_main.json", "w") as f:
+            json.dump(default_signal, f, indent=4)
+    except Exception as e:
+        logger.error(f"Gagal melakukan reset file signal_main.json: {e}")
+        return # Hentikan proses jika bahkan menulis file reset saja gagal
+
+    # 2. INISIALISASI EXCHANGE
     exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30_000})
     exchange_futures = ccxt.kucoinfutures({'enableRateLimit': True, 'timeout': 30_000})
     bot = Bot(token=TOKEN)
@@ -536,12 +613,23 @@ async def main():
         best_signal = None
         
         if trade_candidates:
-            trade_candidates.sort(key=lambda x: (abs(x.get('sudut', 0.0)), x.get('skor', 0.0), x.get('rrr', 0.0)), reverse=True)
+            trade_candidates.sort(key=lambda x: (
+                x.get('sudut', 0.0), 
+                x.get('skor', 0.0), 
+                x.get('rrr', 0.0)
+            ), reverse=True)
+            
             best_signal = trade_candidates[0]
+            symbol_terpilih = best_signal['symbol']
+            tipe_terpilih = best_signal['tipe']
 
-            logger.info(f"📢 Mengirim Sinyal Utama: {best_signal['symbol']} ...")
-            pesan = format_pesan(best_signal['symbol'], best_signal)
-            await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
+            # CEK ANTI-SPAM UNTUK SINYAL UTAMA
+            if cek_dan_simpan_duplikasi(symbol_terpilih, tipe_terpilih):
+                logger.info(f"🛡️ Anti-Spam: Sinyal utama {symbol_terpilih} ({tipe_terpilih}) masih sama dengan jam sebelumnya. Broadcast dibatalkan.")
+            else:
+                logger.info(f"📢 Mengirim Sinyal Utama: {symbol_terpilih} ...")
+                pesan = format_pesan(symbol_terpilih, best_signal)
+                await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
         else:
             logger.info("— Tidak ada sinyal BELI yang lolos filter Bot Trading siklus ini.")
 
