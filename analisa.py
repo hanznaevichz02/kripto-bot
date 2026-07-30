@@ -46,12 +46,12 @@ def get_usd_idr() -> float:
         raw_idr = float(r.json()['ticker']['last'])
         
         # Kalibrasi selisih harga (spread) Pluang sekitar +0.42%
-        PLUANG_MARGIN = 1.0042 
+        PLUANG_MARGIN = 1.00509
         
         return raw_idr * PLUANG_MARGIN
     except Exception:
         # Terapkan juga margin pada harga fallback jika API Indodax error
-        return 18000.0 * 1.0042
+        return 18000.0 * 1.00509
 
 def rapihkan_teks(label: str, teks: str, width: int = 35) -> str:
     indent_spasi = " " * len(label)
