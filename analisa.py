@@ -265,12 +265,10 @@ async def main_async():
         is_bullish_1d, tren_1d_teks = baca_momentum(df_1d)
 
         # --- DETEKSI PATAHAN EMA 9 (1H) ---
-        # Bullish Break: Candle sebelumnya di bawah/pas EMA9, candle sekarang melintas ke atas EMA9
         ema9_break_bull = bool(
             (df_1h['close'].iloc[-2] <= df_1h['ema9'].iloc[-2]) and 
             (df_1h['close'].iloc[-1] > df_1h['ema9'].iloc[-1])
         )
-        # Bearish Break: Candle sebelumnya di atas/pas EMA9, candle sekarang melintas ke bawah EMA9
         ema9_break_bear = bool(
             (df_1h['close'].iloc[-2] >= df_1h['ema9'].iloc[-2]) and 
             (df_1h['close'].iloc[-1] < df_1h['ema9'].iloc[-1])
@@ -349,9 +347,9 @@ async def main_async():
 
         fvg_type, fvg_min, fvg_max = cek_fvg(df_1h, usd_idr)
         if fvg_type == "Bullish":
-            fvg_active, fvg_teks_status = True, f.format("TURUN 🔴 (Rp {:,} - Rp {:,})", fvg_min, fvg_max)
+            fvg_active, fvg_teks_status = True, f"BULLISH 🟢 (Rp {fvg_min:,.0f} - Rp {fvg_max:,.0f})"
         elif fvg_type == "Bearish":
-            fvg_active, fvg_teks_status = True, f.format("TURUN 🔴 (Rp {:,} - Rp {:,})", fvg_min, fvg_max)
+            fvg_active, fvg_teks_status = True, f"BEARISH 🔴 (Rp {fvg_min:,.0f} - Rp {fvg_max:,.0f})"
         else:
             fvg_active, fvg_teks_status = False, "Tidak Ada / Sudah Termitigasi ❌"
 
