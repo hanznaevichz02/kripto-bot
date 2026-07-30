@@ -43,9 +43,14 @@ PAIR_NAME = SYMBOL_SPOT.replace('/', '-').replace('USDT', 'IDR')
 def get_usd_idr() -> float:
     try:
         r = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
-        return float(r.json()['ticker']['last'])
+        raw_idr = float(r.json()['ticker']['last'])
+        
+        # Kalibrasi presisi spread Pluang (+0.51%) agar harga menyamai Pluang
+        PLUANG_MARGIN = 1.0051 
+        
+        return raw_idr * PLUANG_MARGIN
     except Exception:
-        return 18000.0
+        return 18000.0 * 1.0051
 
 def rapihkan_teks(label: str, teks: str, width: int = 35) -> str:
     indent_spasi = " " * len(label)
@@ -130,9 +135,9 @@ async def kirim_pesan(bot: Bot, pesan: str):
 async def main_async():
     print(f"DEBUG: Analisa {SYMBOL_SPOT} (spot) | konteks futures: {SYMBOL_SWAP}")
     bot = Bot(token=TOKEN)
-    
-    exchange_spot = ccxt.bybit({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
-    exchange_swap = ccxt.bybit({'enableRateLimit': True, 'options': {'defaultType': 'linear'}, 'timeout': 30000})
+   
+    exchange_spot = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30000})
+    exchange_swap = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'swap'}, 'timeout': 30000})
 
     try:
         exchange_spot.load_markets()
