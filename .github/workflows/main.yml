@@ -23,7 +23,7 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; else pip install ccxt pandas requests python-telegram-bot; fi
 
-      # 1. Main Bot (Filter Pasangan / Scanner)
+      # 1. Main Bot (Opsional jika masih dipakai, jika tidak bisa dihapus juga)
       - name: Run Main Bot
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -31,32 +31,16 @@ jobs:
         run: |
           python main.py
 
-      # 2. Bot SMC Standalone
-      - name: Run SMC Paper Trader
+      # 2. Bot Tunggal AGR (Hybrid Engine)
+      - name: Run AGR Paper Trader
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python paper_trader_smc.py
+          python paper_trade.py
 
-      # 3. Bot Teknikal Standalone
-      - name: Run Technical Paper Trader
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          python paper_trader_tech.py
-
-      # 4. Bot AGR Hybrid Standalone (Mandiri, hitung logika sendiri)
-      - name: Run AGR Hybrid Paper Trader
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          python paper_trader_agr.py
-
-      # 5. Commit & Push semua file JSON state paper trading ke Repo
-      - name: Save All Paper Trading States
+      # 3. Commit & Push semua file JSON state paper trading ke Repo
+      - name: Save Paper Trading States
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
