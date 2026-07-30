@@ -406,7 +406,6 @@ async def main_async():
             f"{kesimpulan_teks}\n"
             f"```"
             f"{rrr_warning}"
-            f"{peringatan_dini}"
         )
 
         await kirim_pesan(bot, msg)
