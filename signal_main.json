@@ -1,14 +1,14 @@
 {
-    "timestamp": "2026-07-30 23:05:47",
-    "symbol": "NONE",
-    "signal_type": null,
-    "score": 0.0,
-    "angle": 0.0,
-    "current_price": 0.0,
-    "high_price": 0.0,
-    "low_price": 0.0,
-    "sl_price": 0.0,
-    "tp_price": 0.0,
-    "rrr": 0.0,
-    "profit_pct": 0.0
+    "timestamp": "2026-07-31 00:05:58",
+    "symbol": "ARB/USDT",
+    "signal_type": "BULL_SWEEP",
+    "score": 65.0,
+    "angle": -8.305050184492165,
+    "current_price": 1400.568,
+    "high_price": 1407.7504,
+    "low_price": 1396.9768,
+    "sl_price": 1378.3153857142859,
+    "tp_price": 1438.2756000000002,
+    "rrr": 1.69,
+    "profit_pct": 2.69
 }
