@@ -86,9 +86,14 @@ def save_signal(signal_data):
 def get_usd_idr() -> float:
     try:
         r = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
-        return float(r.json()['ticker']['last'])
+        raw_idr = float(r.json()['ticker']['last'])
+        
+        # Kalibrasi spread Pluang agar hampir mendekati harga Pluang
+        PLUANG_MARGIN = 1.0052
+        
+        return raw_idr * PLUANG_MARGIN
     except Exception:
-        return 18000.0
+        return 18000.0 * 1.0052
 
 def get_funding_rate(exchange_futures, futures_symbol):
     """Mengambil nilai Funding Rate dari Kucoin Futures."""
