@@ -1,0 +1,19 @@
+{
+    "cash_idr": 0.0,
+    "active_position": {
+        "symbol": "BNB/USDT",
+        "pair_name": "BNB-IDR",
+        "entry_price_idr": 10407197.441844001,
+        "amount": 0.09608734777907843,
+        "sl": 10152548.559168002,
+        "tp": 10719413.365099322,
+        "entry_time": "2026-07-30 14:05:50"
+    },
+    "history": [],
+    "stats": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "total_pnl_idr": 0.0
+    }
+}
