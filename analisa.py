@@ -1,6 +1,6 @@
 """
 ========================================================
-    KRIPTO BOT — Analisa Mendalam Per-Koin (v6.1 Spot-Oriented + 1H EMA9 Break)
+    KRIPTO BOT — Analisa Mendalam Per-Koin (v6.1.1 Spot-Oriented + 1H EMA9 Break)
     Fungsi : Trigger manual, input simbol bebas.
              Funding Rate & data futures HANYA untuk konteks
              analisa (bukan untuk eksekusi) — orientasi SPOT.
@@ -15,9 +15,9 @@ import asyncio
 from datetime import datetime, timezone
 import os
 import sys
-import ccxt
+import ccxt.async_support as ccxt  # Menggunakan versi asynchronous CCXT agar stabil
 import pandas as pd
-import requests
+import httpx
 from telegram import Bot
 import textwrap
 
@@ -40,15 +40,15 @@ PAIR_NAME = SYMBOL_SPOT.replace("/", "-").replace("USDT", "IDR")
 # HELPER
 # ============================================================
 
-def get_usd_idr() -> float:
+async def get_usd_idr() -> float:
     try:
-        r = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
-        raw_idr = float(r.json()["ticker"]["last"])
-        
-        # Kalibrasi spread Pluang agar hampir mendekati harga Pluang
-        PLUANG_MARGIN = 1.0052
-        
-        return raw_idr * PLUANG_MARGIN
+        async with httpx.AsyncClient() as client:
+            r = await client.get("https://indodax.com/api/ticker/usdtidr", timeout=5.0)
+            raw_idr = float(r.json()["ticker"]["last"])
+            
+            # Kalibrasi spread Pluang agar hampir mendekati harga Pluang
+            PLUANG_MARGIN = 1.0052
+            return raw_idr * PLUANG_MARGIN
     except Exception:
         return 18000.0 * 1.0052
 
@@ -167,18 +167,20 @@ async def main_async():
     })
 
     try:
-        exchange_spot.load_markets()
+        await exchange_spot.load_markets()
     except Exception as e:
         await kirim_pesan(bot, f"⚠️ *Gagal Memuat Market*\nSymbol: `{SYMBOL_SPOT}`\nError: `{str(e)[:150]}`")
+        await exchange_spot.close()
+        await exchange_swap.close()
         return
 
-    usd_idr = get_usd_idr()
+    usd_idr = await get_usd_idr()
 
     # --- FUNDING RATE ---
     fr_tersedia = True
     try:
-        exchange_swap.load_markets()
-        fr_data = exchange_swap.fetch_funding_rate(SYMBOL_SWAP)
+        await exchange_swap.load_markets()
+        fr_data = await exchange_swap.fetch_funding_rate(SYMBOL_SWAP)
         funding_rate = float(fr_data.get('fundingRate', 0.0) or 0.0)
     except Exception:
         fr_tersedia = False
@@ -195,13 +197,16 @@ async def main_async():
         status_fr = f"{fr_persen:.4f}% (Seimbang ⚖️)"
 
     try:
-        # --- DATA SPOT ---
-        bars_1h = exchange_spot.fetch_ohlcv(SYMBOL_SPOT, timeframe='1h', limit=50)
-        bars_4h = exchange_spot.fetch_ohlcv(SYMBOL_SPOT, timeframe='4h', limit=50)
-        bars_1d = exchange_spot.fetch_ohlcv(SYMBOL_SPOT, timeframe='1d', limit=30)
+        # --- DATA SPOT (Dilakukan secara paralel dengan asyncio.gather) ---
+        bars_1h_task = exchange_spot.fetch_ohlcv(SYMBOL_SPOT, timeframe='1h', limit=50)
+        bars_4h_task = exchange_spot.fetch_ohlcv(SYMBOL_SPOT, timeframe='4h', limit=50)
+        bars_1d_task = exchange_spot.fetch_ohlcv(SYMBOL_SPOT, timeframe='1d', limit=30)
+        bars_1h, bars_4h, bars_1d = await asyncio.gather(bars_1h_task, bars_4h_task, bars_1d_task)
 
         if len(bars_1h) < 25 or len(bars_4h) < 25 or len(bars_1d) < 20:
             await kirim_pesan(bot, f"⚠️ *Data Tidak Cukup*\nSymbol: `{SYMBOL_SPOT}`\nKemungkinan koin baru listing.")
+            await exchange_spot.close()
+            await exchange_swap.close()
             return
 
         df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']).astype(float)
@@ -250,7 +255,7 @@ async def main_async():
             e21 = df['ema21'].iloc[-1]
 
             if c > e9 and e9 > e21:
-                return True, "NAIK 🟢"
+                return True, "NAIK KOKOH 🟢"
             elif c > e9 and e9 <= e21:
                 return True, "REBOUND ↗️"
             elif c < e9 and e9 < e21:
@@ -412,6 +417,10 @@ async def main_async():
     except Exception as e:
         print(f"Error saat analisa {SYMBOL_SPOT}: {e}")
         await kirim_pesan(bot, f"⚠️ *Gagal Analisa* `{PAIR_NAME}`\nError: `{str(e)[:200]}`")
+
+    finally:
+        await exchange_spot.close()
+        await exchange_swap.close()
 
 def run_analysis():
     asyncio.run(main_async())
