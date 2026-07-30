@@ -6,7 +6,8 @@
             analisa (bukan untuk eksekusi) — orientasi SPOT.
    Fix    : Symbol swap konsisten, ATR per-timeframe,
             CHoCH/BOS directional, FVG mitigasi,
-            notif error, candle running detection.
+            notif error, candle running detection,
+            Momentum 4 fase (Rebound/Koreksi).
 ========================================================
 """
 
@@ -209,18 +210,30 @@ async def main_async():
         r1_1d_idr, r2_1d_idr = float(piv_1d['r1'] * usd_idr), float(piv_1d['r2'] * usd_idr)
         s1_1d_idr, s2_1d_idr = float(piv_1d['s1'] * usd_idr), float(piv_1d['s2'] * usd_idr)
 
-        # --- TREND (EMA 9/21) DIUBAH KE 'AND' AGAR LEBIH AKURAT ---
+        # --- TREND & DETEKSI PEMBELOKAN (REBOUND/KOREKSI) ---
         for df in (df_1h, df_4h, df_1d):
             df['ema9']  = df['close'].ewm(span=9,  adjust=False).mean()
             df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
 
-        is_bullish_1h = (df_1h['ema9'].iloc[-1] > df_1h['ema21'].iloc[-1]) and (df_1h['close'].iloc[-1] > df_1h['ema9'].iloc[-1])
-        is_bullish_4h = (df_4h['ema9'].iloc[-1] > df_4h['ema21'].iloc[-1]) and (df_4h['close'].iloc[-1] > df_4h['ema9'].iloc[-1])
-        is_bullish_1d = (df_1d['ema9'].iloc[-1] > df_1d['ema21'].iloc[-1]) and (df_1d['close'].iloc[-1] > df_1d['ema9'].iloc[-1])
+        def baca_momentum(df):
+            c = df['close'].iloc[-1]
+            e9 = df['ema9'].iloc[-1]
+            e21 = df['ema21'].iloc[-1]
+            
+            if c > e9 and e9 > e21:
+                return True, "NAIK KOKOH 🟢"
+            elif c > e9 and e9 <= e21:
+                return True, "REBOUND ↗️" 
+            elif c < e9 and e9 < e21:
+                return False, "TURUN 🔴"
+            elif c < e9 and e9 >= e21:
+                return False, "KOREKSI ↘️" 
+            else:
+                return False, "SIDEWAYS ⚪"
 
-        tren_1h_teks = "NAIK 🟢" if is_bullish_1h else "TURUN 🔴"
-        tren_4h_teks = "NAIK 🟢" if is_bullish_4h else "TURUN 🔴"
-        tren_1d_teks = "NAIK 🟢" if is_bullish_1d else "TURUN 🔴"
+        is_bullish_1h, tren_1h_teks = baca_momentum(df_1h)
+        is_bullish_4h, tren_4h_teks = baca_momentum(df_4h)
+        is_bullish_1d, tren_1d_teks = baca_momentum(df_1d)
 
         # --- SL/TP ---
         if is_bullish_1h:
@@ -301,11 +314,11 @@ async def main_async():
         peringatan_dini = f"\n⏳ *Catatan:* Candle 1H baru berjalan {waktu_1h} menit — sinyal 1H masih bisa berubah.\n" if candle_1h_dini else ""
 
         # --- TEKS PERSPEKTIF ---
-        smc_1h_k = "Struktur mikro 1H Bullish, momentum scalping aktif." if is_bullish_1h else "Tekanan jual 1H mendominasi area mikro."
+        smc_1h_k = f"Struktur mikro 1H {tren_1h_teks}, momentum scalping aktif." if is_bullish_1h else f"Tekanan jual 1H ({tren_1h_teks}) mendominasi area mikro."
         smc_1h_r = "Potensi dorongan cepat ke resistance terdekat." if is_bullish_1h else "Waspada koreksi cepat, utamakan scalping pendek."
-        smc_4h_k = "Tren 4H NAIK/Rebound. Live Price merespons area support." if is_bullish_4h else f"Tren 4H TURUN. Tekanan jual terasa, Skor Setup ({skor_smc}/100)."
+        smc_4h_k = f"Tren 4H {tren_4h_teks}. Live Price merespons area support/resistance." if is_bullish_4h else f"Tren 4H {tren_4h_teks}. Tekanan jual terasa, Skor Setup ({skor_smc}/100)."
         smc_4h_r = "Lanjut dorongan naik bertahap menuju target TP." if is_bullish_4h else "Wait & See dulu. Tunggu pantulan aman dekat Lantai 1 4H."
-        smc_1d_k = "Tren makro 1D NAIK kuat. Struktur makro sehat." if is_bullish_1d else "Tren makro 1D TURUN. Bandar makro cenderung distribusi."
+        smc_1d_k = f"Tren makro 1D {tren_1d_teks}. Struktur makro sehat." if is_bullish_1d else f"Tren makro 1D {tren_1d_teks}. Bandar makro cenderung distribusi."
         smc_1d_r = "Bagus untuk posisi Swing (Spot)." if is_bullish_1d else "Hindari all-in. Cicil beli bertahap (DCA) lebih aman di spot."
 
         # Pemformatan
