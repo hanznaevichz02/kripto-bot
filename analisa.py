@@ -387,7 +387,7 @@ async def main_async():
       fvg_active, fvg_teks_status = (
           True,
           f"TURUN 🔴 (Rp {fvg_min:,.0f} - Rp {fvg_max:,.0f})",
-      )  # Mengikuti visual format kustom Anda
+      )
     elif fvg_type == "Bearish":
       fvg_active, fvg_teks_status = (
           True,
@@ -422,7 +422,7 @@ async def main_async():
 
     breakdown_str = "\n".join(breakdown_skor)
 
-    # --- FORMAT UTAMA (MENGIKUTI KEINGINAN USER) ---
+    # --- FORMAT UTAMA ---
     msg = (
         f"```text\n"
         f"🔍 {PAIR_NAME}\n"
@@ -448,7 +448,7 @@ async def main_async():
         f"📋 Sinyal Terdeteksi\n"
         f"- Golden Cross + MA Inflection / Squeeze\n"
         f"----------------------------------\n"
-        f"📋 SKOR SETUP\n"
+        f"📋 SKOR SETUP — {skor_smc}/100\n"
         f"{breakdown_str}\n"
         f"```"
     )
