@@ -104,7 +104,7 @@ def get_funding_rate(exchange_futures, futures_symbol):
         print(f"Gagal ambil funding rate {futures_symbol}: {e}")
         return None
 
-def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> dict:
+def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 20) -> dict:
     swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
     swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
     return {'swing_high': swing_high, 'swing_low': swing_low}
