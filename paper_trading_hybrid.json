@@ -1,14 +1,6 @@
 {
-    "cash_idr": 0.0,
-    "active_position": {
-        "symbol": "ADA/USDT",
-        "pair_name": "ADA-IDR",
-        "entry_price_idr": 2935.9631,
-        "amount": 346.76907962013325,
-        "sl": 2742.259482142857,
-        "tp": 3004.3669,
-        "entry_time": "2026-07-29 12:06:00"
-    },
+    "cash_idr": 1001343.4577265105,
+    "active_position": null,
     "history": [
         {
             "pair": "TAO-IDR",
@@ -17,12 +9,20 @@
             "status": "WIN",
             "entry_time": "2026-07-28 18:05:53",
             "exit_time": "2026-07-29 05:06:02"
+        },
+        {
+            "pair": "ADA-IDR",
+            "pnl_pct": -1.65,
+            "pnl_idr": -16757.76,
+            "status": "LOSS",
+            "entry_time": "2026-07-29 12:06:00",
+            "exit_time": "2026-07-30 08:05:57"
         }
     ],
     "stats": {
-        "total_trades": 1,
+        "total_trades": 2,
         "wins": 1,
-        "losses": 0,
-        "total_pnl_idr": 18101.22
+        "losses": 1,
+        "total_pnl_idr": 1343.4600000000028
     }
 }
