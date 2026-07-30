@@ -1,11 +1,20 @@
 {
-    "cash_idr": 0.0,
-    "history": [],
+    "cash_idr": 986804.1283903127,
+    "history": [
+        {
+            "pair": "SUI-IDR",
+            "pnl_pct": -1.32,
+            "pnl_idr": -13195.87,
+            "status": "LOSS",
+            "entry_time": "2026-07-30 21:05:59",
+            "exit_time": "2026-07-30 22:06:10"
+        }
+    ],
     "stats": {
-        "total_trades": 0,
+        "total_trades": 1,
         "wins": 0,
-        "losses": 0,
-        "total_pnl_idr": 0.0
+        "losses": 1,
+        "total_pnl_idr": -13195.87
     },
     "active_positions": [
         {
@@ -25,15 +34,6 @@
             "sl": 13479.72164644,
             "tp": 14240.592889376001,
             "entry_time": "2026-07-30 20:29:17"
-        },
-        {
-            "symbol": "SUI/USDT",
-            "pair_name": "SUI-IDR",
-            "entry_price_idr": 12574.403645999999,
-            "amount": 79.52663427645784,
-            "sl": 12115.973929,
-            "tp": 12954.602595999999,
-            "entry_time": "2026-07-30 21:05:59"
         }
     ]
 }
