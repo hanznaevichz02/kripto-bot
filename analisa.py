@@ -45,12 +45,12 @@ def get_usd_idr() -> float:
         r = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5)
         raw_idr = float(r.json()['ticker']['last'])
         
-        # Kalibrasi presisi spread Pluang (+0.51%) agar harga menyamai Pluang
-        PLUANG_MARGIN = 1.0051 
+        # Kalibrasi spread Pluang agar hampir mendekati harga Pluang
+        PLUANG_MARGIN = 1.00505
         
         return raw_idr * PLUANG_MARGIN
     except Exception:
-        return 18000.0 * 1.0051
+        return 18000.0 * 1.00505
 
 def rapihkan_teks(label: str, teks: str, width: int = 35) -> str:
     indent_spasi = " " * len(label)
