@@ -404,8 +404,8 @@ async def main_async():
             f"📋 RINCIAN SKOR SETUP (SMC + FVG)\n"
             f"{breakdown_str}\n"
             f"{kesimpulan_teks}\n"
+            f"{rrr_warning}\n"
             f"```"
-            f"{rrr_warning}"
         )
 
         await kirim_pesan(bot, msg)
