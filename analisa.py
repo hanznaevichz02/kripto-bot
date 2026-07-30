@@ -168,11 +168,11 @@ async def main_async():
     if not fr_tersedia:
         status_fr = "N/A (futures pair tidak tersedia)"
     elif fr_persen > 0.02:
-        status_fr = f"{fr_persen:.4f}% (Long Overcrowded 🔥 — waspada koreksi)"
+        status_fr = f"{fr_persen:.4f}% (Long Membludak 🔥 — waspada koreksi)"
     elif fr_persen < -0.01:
-        status_fr = f"{fr_persen:.4f}% (Short Overcrowded 💧 — potensi rebound)"
+        status_fr = f"{fr_persen:.4f}% (Short Membludak 💧 — potensi rebound)"
     else:
-        status_fr = f"{fr_persen:.4f}% (Normal / Seimbang ⚖️)"
+        status_fr = f"{fr_persen:.4f}% (Seimbang ⚖️)"
 
     try:
         # --- DATA SPOT ---
