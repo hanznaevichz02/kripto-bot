@@ -292,6 +292,13 @@ async def main_async():
         swing_high_20 = df_1h['high'].iloc[-21:-1].max()
         swing_low_20 = df_1h['low'].iloc[-21:-1].min()
 
+        # --- INISIALISASI STATUS TRENS (Tambahkan di sini) ---
+        is_bearish_4h = c_4h < e9 and e9 < e21
+        is_sideways_4h = not trend_4h_bull and not is_bearish_4h # Sesuaikan logika sideways Anda
+    
+        # Jika belum ada DataFrame 1D khusus, bisa diturunkan dari kondisi 4H/EMA50
+        is_bearish_1d = not trend_4h_bull
+    
         # Target SL/TP & Text Level Berdasarkan State Mode (Bullish/Sideways vs Bearish)
         if is_bearish_4h:
             level_4h_teks = f"  Lantai 1    : Rp {s1_4h_idr:,.0f}\n  Lantai 2    : Rp {s2_4h_idr:,.0f}"
