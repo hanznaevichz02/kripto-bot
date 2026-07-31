@@ -48,7 +48,7 @@ ASSET_LIST: List[str] = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'SUI/USDT',
     'XRP/USDT', 'LINK/USDT', 'AAVE/USDT', 'DOT/USDT', 'ONDO/USDT',
     'ARB/USDT', 'NEAR/USDT', 'ZEC/USDT', 'TAO/USDT', 'AVAX/USDT',
-    'ADA/USDT'
+    'ADA/USDT', 'TRX/USDT', 'UNI/USDT'
 ]
 
 # Mapping Simbol Spot ke Kucoin Futures
