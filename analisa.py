@@ -1,12 +1,15 @@
 """
 ========================================================
-    KRIPTO BOT — Analisa Mendalam Per-Koin (v6.3.3 Final Refine)
+    KRIPTO BOT — Analisa Mendalam Per-Koin (v6.3.7 Final Sync & Tri-State)
     Fungsi : Trigger manual, input simbol bebas.
              Orientasi SPOT dengan advice khusus fee Pluang.
-    Fixes  : - Clean Dead Code (SL/TP 1H Dihapus)
+    Fixes  : - Clean Dead Code (SL/TP 1H & Pivots 1H Dihapus)
              - Dynamic Fee Buffer (Min Profit Kotor 3.0%)
              - Simetrisasi Tren KOREKSI vs REBOUND
              - Clean NBSP Character Encoding Bug
+             - Fix RSI String Interpolation (Missing f-string)
+             - Fix Directional Trend Consistency (Adaptif Bullish/Bearish)
+             - Fix Logic Drift & Sideways Contradiction (Tri-State Machine)
 ========================================================
 """
 
@@ -86,7 +89,7 @@ def cek_fvg(df: pd.DataFrame, usd_idr: float):
                 return "Bearish", gap_bawah * usd_idr, gap_atas * usd_idr
     return None, 0, 0
 
-def hitung_skor_smc(choch, bos, closed_confirmed, trend_consistency_score, mitigation, fvg, rrr, volume_spike, ema9_break_bull, ema9_break_bear):
+def hitung_skor_smc(choch, bos, closed_confirmed, trend_consistency_score, mitigation, fvg, rrr, volume_spike, ema9_break_bull, ema9_break_bear, label_arah_tren):
     score = 0
     breakdown = []
     
@@ -110,9 +113,9 @@ def hitung_skor_smc(choch, bos, closed_confirmed, trend_consistency_score, mitig
 
     if trend_consistency_score >= 0.7:
         score += 10
-        breakdown.append(f"- Tren 14-Candle Konsisten ({int(trend_consistency_score*100)}%) (+10)")
+        breakdown.append(f"- Tren 14-Candle Konsisten Searah ({int(trend_consistency_score*100)}% {label_arah_tren}) (+10)")
     elif trend_consistency_score <= 0.3:
-        breakdown.append(f"- Tren 14-Candle Dominan Turun ({int(trend_consistency_score*100)}%) (+0)")
+        breakdown.append(f"- Tren 14-Candle Berlawanan ({int(trend_consistency_score*100)}%) (+0)")
     else:
         breakdown.append("- Tren 14-Candle Netral/Sideways (+5)")
         score += 5
@@ -228,7 +231,7 @@ async def main_async():
             p = (h + l + c) / 3
             return {'p': p, 'r1': (2 * p) - l, 'r2': p + (h - l), 's1': (2 * p) - h, 's2': p - (h - l)}
 
-        piv_1h, piv_4h, piv_1d = pivot_levels(df_1h), pivot_levels(df_4h), pivot_levels(df_1d)
+        piv_4h, piv_1d = pivot_levels(df_4h), pivot_levels(df_1d)
         r1_4h_idr, r2_4h_idr = float(piv_4h['r1'] * usd_idr), float(piv_4h['r2'] * usd_idr)
         s1_4h_idr, s2_4h_idr = float(piv_4h['s1'] * usd_idr), float(piv_4h['s2'] * usd_idr)
         r1_1d_idr, r2_1d_idr = float(piv_1d['r1'] * usd_idr), float(piv_1d['r2'] * usd_idr)
@@ -239,23 +242,45 @@ async def main_async():
             df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
             df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
 
-        def baca_momentum(df):
+        def baca_momentum_state(df):
             c = df['close'].iloc[-1]
             e9 = df['ema9'].iloc[-1]
             e21 = df['ema21'].iloc[-1]
-            if c > e9 and e9 > e21: return True, "NAIK KOKOH 🟢"
-            elif c > e9 and e9 <= e21: return True, "REBOUND ↗️"
-            elif c < e9 and e9 < e21: return False, "TURUN 🔴"
-            elif c < e9 and e9 >= e21: return False, "KOREKSI ↘️"
-            else: return False, "SIDEWAYS ⚪"
+            if c > e9 and e9 > e21: return "BULLISH", "NAIK KOKOH 🟢"
+            elif c > e9 and e9 <= e21: return "BULLISH", "REBOUND ↗️"
+            elif c < e9 and e9 < e21: return "BEARISH", "TURUN 🔴"
+            elif c < e9 and e9 >= e21: return "BEARISH", "KOREKSI ↘️"
+            else: return "SIDEWAYS", "SIDEWAYS ⚪"
 
-        is_bullish_1h, tren_1h_teks = baca_momentum(df_1h)
-        is_bullish_4h, tren_4h_teks = baca_momentum(df_4h)
-        is_bullish_1d, tren_1d_teks = baca_momentum(df_1d)
+        state_4h, tren_4h_teks = baca_momentum_state(df_4h)
+        state_1h, tren_1h_teks = baca_momentum_state(df_1h)
+        state_1d, tren_1d_teks = baca_momentum_state(df_1d)
 
-        # Konsistensi Tren 14 Candle
-        candle_above_ema_14 = (df_1h['close'].iloc[-15:-1] > df_1h['ema9'].iloc[-15:-1]).sum()
-        trend_consistency_score = candle_above_ema_14 / 14.0
+        # ============================================================
+        # TRI-STATE UNIFIED STATE & SYNCHRONIZED HEALTH CLASSIFICATION
+        # ============================================================
+        is_bullish_4h = (state_4h == "BULLISH")
+        is_sideways_4h = (state_4h == "SIDEWAYS")
+        is_bearish_4h = (state_4h == "BEARISH")
+
+        is_bullish_1h = (state_1h in ["BULLISH"])
+        is_bearish_1h = (state_1h in ["BEARISH"])
+
+        # Koin Hancur: Kedua TF utama berada di zona bearish murni
+        koin_hancur = is_bearish_4h and is_bearish_1h
+
+        # Koin Sehat: 4H Bullish atau Sideways, didukung 1H yang Bullish/Rebound (Bebas Drift)
+        koin_sehat = (is_bullish_4h or is_sideways_4h) and is_bullish_1h
+
+        # --- KONSISTENSI TREN 14 CANDLE (DIRECTIONAL / ADAPTIF) ---
+        if is_bearish_4h:
+            candle_aligned_14 = (df_1h['close'].iloc[-15:-1] < df_1h['ema9'].iloc[-15:-1]).sum()
+            label_arah_tren = "Bearish"
+        else:
+            candle_aligned_14 = (df_1h['close'].iloc[-15:-1] > df_1h['ema9'].iloc[-15:-1]).sum()
+            label_arah_tren = "Bullish/Range"
+
+        trend_consistency_score = candle_aligned_14 / 14.0
 
         # Deteksi Patahan EMA 9 (1H)
         ema9_break_bull = bool((df_1h['close'].iloc[-2] <= df_1h['ema9'].iloc[-2]) and (df_1h['close'].iloc[-1] > df_1h['ema9'].iloc[-1]))
@@ -267,18 +292,21 @@ async def main_async():
         swing_high_20 = df_1h['high'].iloc[-21:-1].max()
         swing_low_20 = df_1h['low'].iloc[-21:-1].min()
 
-        # Target SL/TP & Text Level (Fokus 4H & 1D)
-        if is_bullish_4h:
-            level_4h_teks = f"  Atap 1      : Rp {r1_4h_idr:,.0f}\n  Atap 2      : Rp {r2_4h_idr:,.0f}"
-            sl_4h_idr, tp_4h_idr = s1_4h_idr - (0.5 * atr_4h_idr), r2_4h_idr
-        else:
+        # Target SL/TP & Text Level Berdasarkan State Mode (Bullish/Sideways vs Bearish)
+        if is_bearish_4h:
             level_4h_teks = f"  Lantai 1    : Rp {s1_4h_idr:,.0f}\n  Lantai 2    : Rp {s2_4h_idr:,.0f}"
             sl_4h_idr, tp_4h_idr = s2_4h_idr - (0.5 * atr_4h_idr), r1_4h_idr
-
-        if is_bullish_1d:
-            level_1d_teks = f"  Atap 1      : Rp {r1_1d_idr:,.0f}\n  Atap 2      : Rp {r2_1d_idr:,.0f}"
+        elif is_sideways_4h:
+            level_4h_teks = f"  Atap 1      : Rp {r1_4h_idr:,.0f}\n  Lantai 1    : Rp {s1_4h_idr:,.0f}"
+            sl_4h_idr, tp_4h_idr = s1_4h_idr - (0.5 * atr_4h_idr), r1_4h_idr
         else:
+            level_4h_teks = f"  Atap 1      : Rp {r1_4h_idr:,.0f}\n  Atap 2      : Rp {r2_4h_idr:,.0f}"
+            sl_4h_idr, tp_4h_idr = s1_4h_idr - (0.5 * atr_4h_idr), r2_4h_idr
+
+        if is_bearish_4h:
             level_1d_teks = f"  Lantai 1    : Rp {s1_1d_idr:,.0f}\n  Lantai 2    : Rp {s2_1d_idr:,.0f}"
+        else:
+            level_1d_teks = f"  Atap 1      : Rp {r1_1d_idr:,.0f}\n  Atap 2      : Rp {r2_1d_idr:,.0f}"
 
         risk_4h = abs(harga_sekarang - sl_4h_idr)
         reward_4h = abs(tp_4h_idr - harga_sekarang)
@@ -292,7 +320,10 @@ async def main_async():
         df_4h['rsi'] = 100 - (100 / (1 + rs))
         rsi_4h = df_4h['rsi'].iloc[-1]
 
-        status_rsi = f"Overbought ({rsi_4h:.0f})" if rsi_4h >= 70 else ("Oversold ({rsi_4h:.0f})" if rsi_4h <= 30 else f"Normal ({rsi_4h:.0f})")
+        status_rsi = (
+            f"Overbought ({rsi_4h:.0f})" if rsi_4h >= 70 else
+            f"Oversold ({rsi_4h:.0f})" if rsi_4h <= 30 else
+            f"Normal ({rsi_4h:.0f})")
 
         price_hh = df_4h['close'].iloc[-1] > df_4h['close'].iloc[-11:-1].max()
         rsi_lh = df_4h['rsi'].iloc[-1] < df_4h['rsi'].iloc[-11:-1].max()
@@ -301,21 +332,22 @@ async def main_async():
 
         divergence_teks = "⚠️ Bearish" if (price_hh and rsi_lh) else ("✅ Bullish" if (price_ll and rsi_hl) else "Tidak Terdeteksi")
 
-        # Evaluasi BOS/CHoCH
+        # Evaluasi BOS/CHoCH Sesuai State Mode (Bullish/Sideways vs Bearish)
         curr_1h_live = df_1h.iloc[-1]
         prev_1h_closed = df_1h.iloc[-2]
         vol_spike = bool(curr_1h_live['volume'] > (df_1h['avg_vol'].iloc[-1] * 1.8))
 
-        if is_bullish_4h:
-            choch = bool(curr_1h_live['close'] > curr_1h_live['open'] and curr_1h_live['volume'] > (df_1h['avg_vol'].iloc[-1] * 1.5))
-            bos = bool(curr_1h_live['close'] > swing_high_20)
-            closed_confirmed = bool(prev_1h_closed['close'] > df_1h['ema9'].iloc[-2])
-            mitigation = bool((df_4h['low'].iloc[-1] * usd_idr) <= (s1_4h_idr * 1.005))
-        else:
+        if is_bearish_4h:
             choch = bool(curr_1h_live['close'] < curr_1h_live['open'] and curr_1h_live['volume'] > (df_1h['avg_vol'].iloc[-1] * 1.5))
             bos = bool(curr_1h_live['close'] < swing_low_20)
             closed_confirmed = bool(prev_1h_closed['close'] < df_1h['ema9'].iloc[-2])
             mitigation = bool((df_4h['high'].iloc[-1] * usd_idr) >= (r1_4h_idr * 0.995))
+        else:
+            # Bullish atau Sideways menggunakan struktur Support-Bounce (Buy on Dip)
+            choch = bool(curr_1h_live['close'] > curr_1h_live['open'] and curr_1h_live['volume'] > (df_1h['avg_vol'].iloc[-1] * 1.5))
+            bos = bool(curr_1h_live['close'] > swing_high_20)
+            closed_confirmed = bool(prev_1h_closed['close'] > df_1h['ema9'].iloc[-2])
+            mitigation = bool((df_4h['low'].iloc[-1] * usd_idr) <= (s1_4h_idr * 1.005))
 
         fvg_type, fvg_min, fvg_max = cek_fvg(df_1h, usd_idr)
         if fvg_type == "Bullish":
@@ -328,7 +360,7 @@ async def main_async():
         # Skor Setup
         skor_smc, breakdown_skor = hitung_skor_smc(
             choch, bos, closed_confirmed, trend_consistency_score,
-            mitigation, fvg_active, rrr_4h, vol_spike, ema9_break_bull, ema9_break_bear
+            mitigation, fvg_active, rrr_4h, vol_spike, ema9_break_bull, ema9_break_bear, label_arah_tren
         )
 
         label_skor = "🔥 SANGAT KUAT" if skor_smc >= 70 else ("✅ POTENSIAL" if skor_smc >= 50 else "⚠️ STANDAR")
@@ -340,7 +372,6 @@ async def main_async():
         FEE_PLUANG = 0.013          # Fee total (Beli + Jual) Pluang = 1.3%
         NET_MARGIN_MIN = 0.017      # Target margin untung bersih minimal = 1.7%
         
-        # Total minimum profit kotor (3.0%) agar konsisten dengan prinsip scalping min 3%+
         MIN_PROFIT_BUFFER = FEE_PLUANG + NET_MARGIN_MIN 
 
         profit_kotor_persen = (reward_4h / harga_sekarang) if harga_sekarang > 0 else 0
@@ -358,12 +389,6 @@ async def main_async():
                 f"net profit < {NET_MARGIN_MIN*100:.1f}% setelah Fee Pluang ({FEE_PLUANG*100:.1f}%)"
             )
 
-        # Simetrisasi Tren
-        koin_hancur = ("TURUN" in tren_4h_teks or "KOREKSI" in tren_4h_teks) and \
-                      ("TURUN" in tren_1h_teks or "KOREKSI" in tren_1h_teks)
-        koin_sehat  = ("NAIK" in tren_4h_teks or "SIDEWAYS" in tren_4h_teks) and \
-                      ("NAIK" in tren_1h_teks or "REBOUND" in tren_1h_teks)
-
         if len(alasan_skip) > 0 and koin_hancur:
             kesimpulan_advice = f"🔴 SKIP / SANGAT BERISIKO\n- Alasan: Koin longsor & {', '.join(alasan_skip)}."
         elif len(alasan_skip) > 0 and not koin_hancur:
@@ -376,9 +401,9 @@ async def main_async():
                     kesimpulan_advice = "🔴 SKIP (PISAU JATUH)\n- Sinyal: Tren turun kuat tanpa konfirmasi reversal."
             elif koin_sehat:
                 if "Oversold" in status_rsi or closed_confirmed:
-                    kesimpulan_advice = "🟢 ENTRY (BUY ON DIP / SWING)\n- Sinyal: Tren sehat & dikonfirmasi candle tertutup (Short Swing max 3 hari)."
+                    kesimpulan_advice = "🟢 ENTRY (BUY ON DIP / RANGE SWING)\n- Sinyal: Tren sehat/sideways range dikonfirmasi support bounce (Short Swing max 3 hari)."
                 else:
-                    kesimpulan_advice = "🟡 WAIT (RAWAN PUCUK)\n- Sinyal: Koin naik tapi harga tanggung. Tunggu antre di Support."
+                    kesimpulan_advice = "🟡 WAIT (RAWAN PUCUK)\n- Sinyal: Harga berada di tengah range. Tunggu antre di Support / Lantai."
             else:
                 kesimpulan_advice = "🟢 ENTRY (RANGE TRADING)" if (rrr_4h >= 2.0 and skor_smc >= 50) else "🟡 WAIT & SEE"
 
@@ -395,7 +420,7 @@ async def main_async():
             f"• RSI       : {status_rsi}\n"
             f"• Divergence: {divergence_teks}\n"
             f"• Patahan 9 : {patahan_ema9_teks}\n"
-            f"• Konsistensi: {int(trend_consistency_score*100)}% Bullish (14 Candle)\n"
+            f"• Konsistensi: {int(trend_consistency_score*100)}% {label_arah_tren} (14 Candle)\n"
             f"• Setup     : {skor_smc}/100 ({label_skor})\n"
             f"• RRR(4H)   : 1 : {rrr_4h:.2f}\n"
             f"----------------------------------\n"
