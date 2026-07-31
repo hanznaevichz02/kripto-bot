@@ -228,7 +228,7 @@ async def main_async():
 
         # Pivot Points
         def pivot_levels(df):
-            h, l, c = df['high'].iloc[-1], df['low'].iloc[-1], df['close'].iloc[-1]
+            h, l, c = df['high'].iloc[-2], df['low'].iloc[-2], df['close'].iloc[-2]
             p = (h + l + c) / 3
             return {'p': p, 'r1': (2 * p) - l, 'r2': p + (h - l), 's1': (2 * p) - h, 's2': p - (h - l)}
 
@@ -294,16 +294,23 @@ async def main_async():
         swing_high_20 = df_1h['high'].iloc[-21:-1].max()
         swing_low_20 = df_1h['low'].iloc[-21:-1].min()
 
-        # --- VARIABEL DASAR & INISIALISASI TRENS UNTUK LEVEL ---
+        # --- VARIABEL DASAR & INISIALISASI TRENDS ---
+        # Data 4H
         c_4h = float(df_4h['close'].iloc[-1])
-        e9 = float(df_4h['ema9'].iloc[-1])
-        e21 = float(df_4h['ema21'].iloc[-1])
+        e9_4h = float(df_4h['ema9'].iloc[-1])
+        e21_4h = float(df_4h['ema21'].iloc[-1])
         trend_4h_bull = c_4h > df_4h['ema50'].iloc[-1]
 
+        # Data 1D
+        c_1d = float(df_1d['close'].iloc[-1])
+        e9_1d = float(df_1d['ema9'].iloc[-1])
+        e21_1d = float(df_1d['ema21'].iloc[-1])
+        trend_1d_bull = c_1d > df_1d['ema50'].iloc[-1]
+
         # Sinkronisasi status state agar variabel turunan aman
-        is_bearish_4h = (state_4h == "BEARISH") or (c_4h < e9 and e9 < e21)
+        is_bearish_4h = (state_4h == "BEARISH") or (c_4h < e9_4h and e9_4h < e21_4h)
         is_sideways_4h = (state_4h == "SIDEWAYS") or (not trend_4h_bull and not is_bearish_4h)
-        is_bearish_1d = (state_1d == "BEARISH") or (not trend_4h_bull)
+        is_bearish_1d = (state_1d == "BEARISH") or (not trend_1d_bull)
 
         # Target SL/TP & Text Level Berdasarkan State Mode (Bullish/Sideways vs Bearish)
         if is_bearish_4h:
