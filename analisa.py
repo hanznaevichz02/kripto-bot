@@ -303,7 +303,7 @@ async def main_async():
             level_4h_teks = f"  Atap 1      : Rp {r1_4h_idr:,.0f}\n  Atap 2      : Rp {r2_4h_idr:,.0f}"
             sl_4h_idr, tp_4h_idr = s1_4h_idr - (0.5 * atr_4h_idr), r2_4h_idr
 
-        if is_bearish_4h:
+        if is_bearish_1d:
             level_1d_teks = f"  Lantai 1    : Rp {s1_1d_idr:,.0f}\n  Lantai 2    : Rp {s2_1d_idr:,.0f}"
         else:
             level_1d_teks = f"  Atap 1      : Rp {r1_1d_idr:,.0f}\n  Atap 2      : Rp {r2_1d_idr:,.0f}"
