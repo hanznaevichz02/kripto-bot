@@ -1,6 +1,6 @@
 """
 ========================================================
-    KRIPTO BOT — Analisa Mendalam Per-Koin (v6.3.7 Final Sync & Tri-State)
+    KRIPTO BOT — Analisa Mendalam Per-Koin (v6.3.8 Final Sync & Tri-State)
     Fungsi : Trigger manual, input simbol bebas.
              Orientasi SPOT dengan advice khusus fee Pluang.
     Fixes  : - Clean Dead Code (SL/TP 1H & Pivots 1H Dihapus)
@@ -10,6 +10,7 @@
              - Fix RSI String Interpolation (Missing f-string)
              - Fix Directional Trend Consistency (Adaptif Bullish/Bearish)
              - Fix Logic Drift & Sideways Contradiction (Tri-State Machine)
+             - Fix NameError for c_4h, e9, e21, and trend definitions
 ========================================================
 """
 
@@ -241,6 +242,7 @@ async def main_async():
         for df in (df_1h, df_4h, df_1d):
             df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
             df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
+            df['ema50'] = df['close'].ewm(span=50, adjust=False).mean()
 
         def baca_momentum_state(df):
             c = df['close'].iloc[-1]
@@ -292,13 +294,17 @@ async def main_async():
         swing_high_20 = df_1h['high'].iloc[-21:-1].max()
         swing_low_20 = df_1h['low'].iloc[-21:-1].min()
 
-        # --- INISIALISASI STATUS TRENS (Tambahkan di sini) ---
-        is_bearish_4h = c_4h < e9 and e9 < e21
-        is_sideways_4h = not trend_4h_bull and not is_bearish_4h # Sesuaikan logika sideways Anda
-    
-        # Jika belum ada DataFrame 1D khusus, bisa diturunkan dari kondisi 4H/EMA50
-        is_bearish_1d = not trend_4h_bull
-    
+        # --- VARIABEL DASAR & INISIALISASI TRENS UNTUK LEVEL ---
+        c_4h = float(df_4h['close'].iloc[-1])
+        e9 = float(df_4h['ema9'].iloc[-1])
+        e21 = float(df_4h['ema21'].iloc[-1])
+        trend_4h_bull = c_4h > df_4h['ema50'].iloc[-1]
+
+        # Sinkronisasi status state agar variabel turunan aman
+        is_bearish_4h = (state_4h == "BEARISH") or (c_4h < e9 and e9 < e21)
+        is_sideways_4h = (state_4h == "SIDEWAYS") or (not trend_4h_bull and not is_bearish_4h)
+        is_bearish_1d = (state_1d == "BEARISH") or (not trend_4h_bull)
+
         # Target SL/TP & Text Level Berdasarkan State Mode (Bullish/Sideways vs Bearish)
         if is_bearish_4h:
             level_4h_teks = f"  Lantai 1    : Rp {s1_4h_idr:,.0f}\n  Lantai 2    : Rp {s2_4h_idr:,.0f}"
