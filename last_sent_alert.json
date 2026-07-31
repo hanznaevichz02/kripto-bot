@@ -1,7 +1,7 @@
 {
     "ARB/USDT": "BULL_SWEEP",
     "AVAX/USDT": "BEAR_SWEEP",
-    "ETH/USDT": "BEAR_SWEEP",
+    "ETH/USDT": "BEAR_BREAKOUT",
     "BTC/USDT": "BEAR_SWEEP",
     "XRP/USDT": "BULL_SWEEP"
 }
