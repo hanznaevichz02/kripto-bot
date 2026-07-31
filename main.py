@@ -213,7 +213,9 @@ def analisa(
     delta_4h = df_4h['close'].diff()
     up, down = delta_4h.clip(lower=0), -1 * delta_4h.clip(upper=0)
     rs = (up.ewm(com=13, adjust=False).mean()) / (down.ewm(com=13, adjust=False).mean())
-    rsi_4h = float((100 - (100 / (1 + rs))).iloc[-1])
+    
+    rsi_series = 100 - (100 / (1 + rs))
+    rsi_4h = float(rsi_series.iloc[-1]) if not math.isnan(rsi_series.iloc[-1]) else 50.0
 
     # 2. LOGIKA PATAHAN EMA9 (PRA-GOLDEN CROSS) PADA TIMEFRAME 1H
     df_1h['ema9'] = df_1h['close'].ewm(span=9, adjust=False).mean()
@@ -428,8 +430,9 @@ def format_informan_radar(kumpulan_semua: List[dict], best_symbol: str) -> str:
         lines.append(f"🔹 <b>{s['symbol']}</b> | Skor: {s['skor']}")
         lines.append(f"  ├ Fase  : {s['fase_4h']} | RSI: {s.get('rsi_4h', 0):.1f}")
         lines.append(f"  ├ Setup : {s['tipe'].replace('_', ' ')}")
+        # PERBAIKAN: Menggunakan .get('rrr', 0.0) untuk menghindari KeyError
         if not s.get('is_tradeable'):
-            lines.append(f"  └ ⚠️ <i>Skip Bot Trading (RRR {s['rrr']}x / Profit {s.get('profit_pct',0):.1f}%)</i>")
+            lines.append(f"  └ ⚠️ <i>Skip Bot Trading (RRR {s.get('rrr', 0.0)}x / Profit {s.get('profit_pct', 0.0):.1f}%)</i>")
         else:
             lines.append(f"  └ ✅ <i>Lolos Syarat Bot, kalah peringkat utama.</i>")
         lines.append("")
@@ -640,20 +643,21 @@ async def main():
             await bot.send_message(chat_id=CHAT_ID, text=radar_msg, parse_mode='HTML')
             logger.info("📢 Radar Informan Pribadi berhasil dikirim.")
 
-        # 3. EXPORT KE PAPER TRADER
+        # 3. EXPORT KE PAPER TRADER (PERBAIKAN: Menggunakan .get() dan menambahkan status ACTIVE)
         signal_export = {
             "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
-            "symbol": best_signal['symbol'] if best_signal else "NONE",
-            "signal_type": best_signal['tipe'] if best_signal else None,
+            "symbol": best_signal.get('symbol', 'NONE') if best_signal else "NONE",
+            "signal_type": best_signal.get('tipe') if best_signal else None,
             "score": best_signal.get('skor', 0.0) if best_signal else 0.0,
             "angle": best_signal.get('sudut', 0.0) if best_signal else 0.0,
-            "current_price": best_signal['harga'] if best_signal else 0.0,
-            "high_price": best_signal['high_price'] if best_signal else 0.0,
-            "low_price": best_signal['low_price'] if best_signal else 0.0,
-            "sl_price": best_signal['sl_buy'] if best_signal else 0.0,
-            "tp_price": best_signal['tp_buy'] if best_signal else 0.0,
+            "current_price": best_signal.get('harga', 0.0) if best_signal else 0.0,
+            "high_price": best_signal.get('high_price', 0.0) if best_signal else 0.0,
+            "low_price": best_signal.get('low_price', 0.0) if best_signal else 0.0,
+            "sl_price": best_signal.get('sl_buy', 0.0) if best_signal else 0.0,
+            "tp_price": best_signal.get('tp_buy', 0.0) if best_signal else 0.0,
             "rrr": best_signal.get('rrr', 0.0) if best_signal else 0.0,
-            "profit_pct": best_signal.get('profit_pct', 0.0) if best_signal else 0.0
+            "profit_pct": best_signal.get('profit_pct', 0.0) if best_signal else 0.0,
+            "status": "ACTIVE"
         }
 
         with open("signal_main.json", "w") as f:
