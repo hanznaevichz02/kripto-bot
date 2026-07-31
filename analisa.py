@@ -1,13 +1,13 @@
 """
 ========================================================
-    KRIPTO BOT — Analisa Mendalam Per-Koin (v6.1.1 Spot-Oriented + 1H EMA9 Break)
+    KRIPTO BOT — Analisa Mendalam Per-Koin (v6.2.0 Spot-Oriented)
     Fungsi : Trigger manual, input simbol bebas.
              Funding Rate & data futures HANYA untuk konteks
              analisa (bukan untuk eksekusi) — orientasi SPOT.
-    Fix    : Symbol swap konsisten, ATR per-timeframe,
+    Fitur  : Symbol swap konsisten, ATR per-timeframe,
              CHoCH/BOS directional, FVG mitigasi,
-             notif error, candle running detection,
              Momentum 4 fase (Rebound/Koreksi) + Deteksi Patahan EMA 9 1H.
+             **NEW: Auto-Advice Engine dengan filter Fee Pluang 1.3%.**
 ========================================================
 """
 
@@ -188,23 +188,23 @@ async def main_async():
 
     fr_persen = funding_rate * 100
     if not fr_tersedia:
-        status_fr = "N/A (futures pair tidak tersedia)"
+        status_fr = "N/A (Pair tidak di Futures)"
     elif fr_persen > 0.02:
-        status_fr = f"{fr_persen:.4f}% (Long Membludak 🔥 — waspada koreksi)"
+        status_fr = f"{fr_persen:.4f}% (Long Dominan 🔥 - Waspada!)"
     elif fr_persen < -0.01:
-        status_fr = f"{fr_persen:.4f}% (Short Membludak 💧 — potensi rebound)"
+        status_fr = f"{fr_persen:.4f}% (Short Dominan 💧 - Potensi Rebound)"
     else:
         status_fr = f"{fr_persen:.4f}% (Seimbang ⚖️)"
 
     try:
-        # --- DATA SPOT (Dilakukan secara paralel dengan asyncio.gather) ---
+        # --- DATA SPOT ---
         bars_1h_task = exchange_spot.fetch_ohlcv(SYMBOL_SPOT, timeframe='1h', limit=50)
         bars_4h_task = exchange_spot.fetch_ohlcv(SYMBOL_SPOT, timeframe='4h', limit=50)
         bars_1d_task = exchange_spot.fetch_ohlcv(SYMBOL_SPOT, timeframe='1d', limit=30)
         bars_1h, bars_4h, bars_1d = await asyncio.gather(bars_1h_task, bars_4h_task, bars_1d_task)
 
         if len(bars_1h) < 25 or len(bars_4h) < 25 or len(bars_1d) < 20:
-            await kirim_pesan(bot, f"⚠️ *Data Tidak Cukup*\nSymbol: `{SYMBOL_SPOT}`\nKemungkinan koin baru listing.")
+            await kirim_pesan(bot, f"⚠️ *Data Tidak Cukup*\nSymbol: `{SYMBOL_SPOT}`\nKoin kemungkinan baru listing.")
             await exchange_spot.close()
             await exchange_swap.close()
             return
@@ -215,7 +215,7 @@ async def main_async():
 
         harga_sekarang = float(df_1h['close'].iloc[-1] * usd_idr)
 
-        # --- ATR & VOLUME (Menggunakan True Range) ---
+        # --- ATR & VOLUME ---
         df_1h['atr'] = hitung_true_range_atr(df_1h, 14)
         df_4h['atr'] = hitung_true_range_atr(df_4h, 14)
         df_1d['atr'] = hitung_true_range_atr(df_1d, 14)
@@ -280,11 +280,11 @@ async def main_async():
         )
 
         if ema9_break_bull:
-            patahan_ema9_teks = "🚀 Patahan Bullish (Harga jebol EMA9 ke Atas)"
+            patahan_ema9_teks = "🚀 Bullish (Harga jebol EMA9 ke Atas)"
         elif ema9_break_bear:
-            patahan_ema9_teks = "⚠️ Patahan Bearish (Harga tembus EMA9 ke Bawah)"
+            patahan_ema9_teks = "⚠️ Bearish (Harga tembus EMA9 ke Bawah)"
         else:
-            patahan_ema9_teks = "Tidak Ada Patahan Baru (Posisi Stabil)"
+            patahan_ema9_teks = "Tidak Ada Patahan Baru"
 
         # --- SL/TP ---
         if is_bullish_1h:
@@ -319,9 +319,9 @@ async def main_async():
         rsi_4h = df_4h['rsi'].iloc[-1]
 
         if rsi_4h >= 70:
-            status_rsi = f"Normal ({rsi_4h:.0f}) - Rawan Turun"
+            status_rsi = f"Overbought ({rsi_4h:.0f}) - Rawan Turun"
         elif rsi_4h <= 30:
-            status_rsi = f"Normal ({rsi_4h:.0f}) - Potensi Mantul"
+            status_rsi = f"Oversold ({rsi_4h:.0f}) - Potensi Mantul"
         else:
             status_rsi = f"Normal ({rsi_4h:.0f})"
 
@@ -379,6 +379,59 @@ async def main_async():
         label_skor = "🔥 SANGAT KUAT" if skor_smc >= 70 else ("✅ POTENSIAL" if skor_smc >= 50 else "⚠️ STANDAR")
         breakdown_str = "\n".join(breakdown_skor)
 
+        # ============================================================
+        # MESIN REKOMENDASI (ADVICE ENGINE)
+        # Khusus Spot, Scalp/Short Swing 2-3 Hari, Filter Fee Pluang 1.3%
+        # ============================================================
+        
+        profit_kotor_persen = (reward_4h / harga_sekarang) if harga_sekarang > 0 else 0
+        FEE_PLUANG = 0.013 # 1.3%
+        MIN_PROFIT_BUFFER = 0.015 # Minimal 1.5% profit bersih kotor agar aman dari fee
+        
+        kesimpulan_advice = ""
+        alasan_skip = []
+
+        # 1. Filter Dasar Keselamatan
+        if rrr_4h < 1.2:
+            alasan_skip.append("RRR terlalu sempit (< 1:1.2)")
+        if skor_smc < 40:
+            alasan_skip.append(f"Skor Keseluruhan Lemah ({skor_smc}/100)")
+        if profit_kotor_persen <= MIN_PROFIT_BUFFER:
+            alasan_skip.append(f"Jarak TP terlalu dekat. Potensi profit hanya {(profit_kotor_persen*100):.2f}% (Habis dimakan Fee Pluang 1.3%)")
+
+        # 2. Deteksi Kondisi Tren Saat Ini
+        koin_hancur = "TURUN" in tren_1h_teks and "TURUN" in tren_4h_teks
+        koin_sehat = ("NAIK" in tren_1h_teks or "REBOUND" in tren_1h_teks) and ("NAIK" in tren_4h_teks or "SIDEWAYS" in tren_4h_teks)
+        
+        # 3. Penentuan Keputusan & Strategi
+        if len(alasan_skip) > 0 and koin_hancur:
+            kesimpulan_advice = f"🔴 SKIP / SANGAT BERISIKO\n- Alasan: Koin sedang longsor parah & {', '.join(alasan_skip)}."
+            
+        elif len(alasan_skip) > 0 and not koin_hancur:
+            kesimpulan_advice = f"🟡 KURANG IDEAL TAPI BISA PANTAU\n- Alasan: {', '.join(alasan_skip)}."
+
+        else:
+            if koin_hancur:
+                if ema9_break_bull or ("✅ Bullish" in divergence_teks):
+                    kesimpulan_advice = "🟢 ENTRY (BOTTOM FISHING)\n- Sinyal: Turun tajam tapi ada Reversal. Cocok untuk Scalping (Max 2 hari). Wajib SL ketat!"
+                else:
+                    kesimpulan_advice = "🔴 SKIP (PISAU JATUH)\n- Sinyal: Tren turun kuat dan belum ada satupun tanda pantulan. Jangan ditangkap!"
+            
+            elif koin_sehat:
+                if "Oversold" in status_rsi or "Mantul" in status_rsi:
+                    kesimpulan_advice = "🟢 ENTRY (BUY ON DIP)\n- Sinyal: Koreksi sehat. Area bagus untuk masuk Spot (Short Swing max 3 hari)."
+                elif ema9_break_bull:
+                    kesimpulan_advice = "🟢 ENTRY (MOMENTUM)\n- Sinyal: Harga baru menembus EMA9 ke atas. Momentum pas untuk swing pendek."
+                else:
+                    kesimpulan_advice = "🟡 WAIT (RAWAN PUCUK)\n- Sinyal: Koin sehat, tapi harga tanggung. Lebih baik antre di area Lantai (Support)."
+            
+            else:
+                if rrr_4h >= 2.0 and skor_smc >= 50:
+                    kesimpulan_advice = "🟢 ENTRY (RANGE TRADING)\n- Sinyal: Harga sideways tapi RRR bagus. Beli di Support (Lantai), TP cepat di Resisten (Atap)."
+                else:
+                    kesimpulan_advice = "🟡 WAIT & SEE\n- Sinyal: Harga netral/tertahan. Tunggu break Resisten atau turun ke Support."
+
+
         # --- FORMAT UTAMA ---
         msg = (
             f"```text\n"
@@ -403,8 +456,8 @@ async def main_async():
             f"• Target TP : Rp {tp_4h_idr:,.0f}\n"
             f"• Batas SL  : Rp {sl_4h_idr:,.0f}\n"
             f"----------------------------------\n"
-            f"📋 Sinyal Terdeteksi\n"
-            f"- Golden Cross + MA Inflection / Squeeze\n"
+            f"💡 ADVICE & STRATEGI\n"
+            f"{kesimpulan_advice}\n"
             f"----------------------------------\n"
             f"📋 SKOR SETUP — {skor_smc}/100\n"
             f"{breakdown_str}\n"
