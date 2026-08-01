@@ -1,5 +1,5 @@
 {
-    "cash_idr": 16610.0,
+    "cash_idr": 968322.2893821879,
     "history": [
         {
             "pair": "BNB-IDR",
@@ -8,13 +8,21 @@
             "status": "WIN",
             "entry_time": "2026-07-30 14:05:50",
             "exit_time": "2026-07-30 23:05:54"
+        },
+        {
+            "pair": "SOL-IDR",
+            "pnl_pct": -4.83,
+            "pnl_idr": -48287.71,
+            "status": "LOSS",
+            "entry_time": "2026-07-30 23:05:54",
+            "exit_time": "2026-08-02 01:05:50"
         }
     ],
     "stats": {
-        "total_trades": 1,
+        "total_trades": 2,
         "wins": 1,
-        "losses": 0,
-        "total_pnl_idr": 16610.0
+        "losses": 1,
+        "total_pnl_idr": -31677.71
     },
     "active_positions": [
         {
@@ -25,15 +33,6 @@
             "sl": 13479.72164644,
             "tp": 14240.592889376001,
             "entry_time": "2026-07-30 20:29:17"
-        },
-        {
-            "symbol": "SOL/USDT",
-            "pair_name": "SOL-IDR",
-            "entry_price_idr": 1350182.9914720003,
-            "amount": 0.7406403475056201,
-            "sl": 1301910.5834840003,
-            "tp": 1390688.4812161603,
-            "entry_time": "2026-07-30 23:05:54"
         },
         {
             "symbol": "ZEC/USDT",
