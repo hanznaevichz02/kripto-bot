@@ -1,5 +1,5 @@
 {
-    "cash_idr": 968322.2893821879,
+    "cash_idr": 984932.2893821879,
     "history": [
         {
             "pair": "BNB-IDR",
@@ -16,24 +16,23 @@
             "status": "LOSS",
             "entry_time": "2026-07-30 23:05:54",
             "exit_time": "2026-08-02 01:05:50"
+        },
+        {
+            "pair": "DOT-IDR",
+            "pnl_pct": 1.66,
+            "pnl_idr": 16610.0,
+            "status": "WIN",
+            "entry_time": "2026-07-30 20:29:17",
+            "exit_time": "2026-08-02 08:05:52"
         }
     ],
     "stats": {
-        "total_trades": 2,
-        "wins": 1,
+        "total_trades": 3,
+        "wins": 2,
         "losses": 1,
-        "total_pnl_idr": -31677.71
+        "total_pnl_idr": -15067.71
     },
     "active_positions": [
-        {
-            "symbol": "DOT/USDT",
-            "pair_name": "DOT-IDR",
-            "entry_price_idr": 13825.818339200001,
-            "amount": 72.32844924374022,
-            "sl": 13479.72164644,
-            "tp": 14240.592889376001,
-            "entry_time": "2026-07-30 20:29:17"
-        },
         {
             "symbol": "ZEC/USDT",
             "pair_name": "ZEC-IDR",
@@ -42,6 +41,15 @@
             "sl": 8104006.386255002,
             "tp": 8964285.431036001,
             "entry_time": "2026-07-31 01:05:50"
+        },
+        {
+            "symbol": "TRX/USDT",
+            "pair_name": "TRX-IDR",
+            "entry_price_idr": 5920.853164800001,
+            "amount": 168.8945785626114,
+            "sl": 5902.053940248001,
+            "tp": 6098.478759744001,
+            "entry_time": "2026-08-02 08:05:52"
         }
     ]
 }
