@@ -41,13 +41,13 @@ MIN_PROFIT_PCT_THRESHOLD = 1.3 # Target profit minimal untuk cover fee transaksi
 PORTFOLIO: Dict[str, Dict[str, float]] = {
     'BTC/USDT': {'buy_price_idr': 1_311_140_722, 'amount': 0.00076261},
     'ETH/USDT': {'buy_price_idr':    37_447_016, 'amount': 0.05060638},
-    'AVAX/USDT': {'buy_price_idr':     118_350, 'amount': 5.8661},
+    'TRX/USDT': {'buy_price_idr':     5_921, 'amount': 172.1096},
 }
 
 ASSET_LIST: List[str] = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'SUI/USDT',
     'XRP/USDT', 'LINK/USDT', 'AAVE/USDT', 'DOT/USDT', 'ONDO/USDT',
-    'ARB/USDT', 'NEAR/USDT', 'ZEC/USDT', 'TAO/USDT', 'AVAX/USDT',
+    'ARB/USDT', 'NEAR/USDT', 'TAO/USDT', 'AVAX/USDT',
     'ADA/USDT', 'TRX/USDT', 'UNI/USDT'
 ]
 
