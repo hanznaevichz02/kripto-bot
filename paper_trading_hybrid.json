@@ -1,5 +1,5 @@
 {
-    "cash_idr": 984932.2893821879,
+    "cash_idr": 1968798.4784065783,
     "history": [
         {
             "pair": "BNB-IDR",
@@ -24,13 +24,21 @@
             "status": "WIN",
             "entry_time": "2026-07-30 20:29:17",
             "exit_time": "2026-08-02 08:05:52"
+        },
+        {
+            "pair": "TRX-IDR",
+            "pnl_pct": -1.61,
+            "pnl_idr": -16133.81,
+            "status": "LOSS",
+            "entry_time": "2026-08-02 08:05:52",
+            "exit_time": "2026-08-02 16:06:00"
         }
     ],
     "stats": {
-        "total_trades": 3,
+        "total_trades": 4,
         "wins": 2,
-        "losses": 1,
-        "total_pnl_idr": -15067.71
+        "losses": 2,
+        "total_pnl_idr": -31201.519999999997
     },
     "active_positions": [
         {
@@ -41,15 +49,6 @@
             "sl": 8104006.386255002,
             "tp": 8964285.431036001,
             "entry_time": "2026-07-31 01:05:50"
-        },
-        {
-            "symbol": "TRX/USDT",
-            "pair_name": "TRX-IDR",
-            "entry_price_idr": 5920.853164800001,
-            "amount": 168.8945785626114,
-            "sl": 5902.053940248001,
-            "tp": 6098.478759744001,
-            "entry_time": "2026-08-02 08:05:52"
         }
     ]
 }
