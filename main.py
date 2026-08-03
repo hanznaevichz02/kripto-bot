@@ -2,7 +2,7 @@
 ========================================================
     KRIPTO BOT — Smart Money Edition (Main Scanner)
     Versi: 4.1 (Integrasi Informan Pribadi & Pra-Golden Cross)
-    SPOT MARKET
+    SPOT MARKET — [PORTFOLIO & WARNING MONITOR ONLY]
 ========================================================
 """
 
@@ -40,35 +40,35 @@ MIN_PROFIT_PCT_THRESHOLD = 1.3 # Target profit minimal untuk cover fee transaksi
 
 PORTFOLIO: Dict[str, Dict[str, float]] = {
     'BTC/USDT': {'buy_price_idr': 1_311_140_722, 'amount': 0.00076261},
-    'ETH/USDT': {'buy_price_idr':    37_447_016, 'amount': 0.05060638},
-    'TRX/USDT': {'buy_price_idr':     5_921, 'amount': 172.1096},
-}
-
-ASSET_LIST: List[str] = [
-    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'SUI/USDT',
-    'XRP/USDT', 'LINK/USDT', 'AAVE/USDT', 'DOT/USDT', 'ONDO/USDT',
-    'ARB/USDT', 'NEAR/USDT', 'TAO/USDT', 'AVAX/USDT',
-    'ADA/USDT', 'TRX/USDT', 'UNI/USDT'
-]
-
-# Mapping Simbol Spot ke Kucoin Futures
-FUTURES_MAP: Dict[str, str] = {
-    'BTC/USDT': 'XBTUSDTM',  'ETH/USDT': 'ETHUSDTM',
-    'SOL/USDT': 'SOLUSDTM',  'BNB/USDT': 'BNBUSDTM',
-    'SUI/USDT': 'SUIUSDTM',  'XRP/USDT': 'XRPUSDTM',
-    'LINK/USDT': 'LINKUSDTM', 'AAVE/USDT': 'AAVEUSDTM',
-    'DOT/USDT':  'DOTUSDTM',  'ONDO/USDT': 'ONDOUSDTM',
-    'ARB/USDT':  'ARBUSDTM',  'NEAR/USDT': 'NEARUSDTM',
-    'ZEC/USDT':  'ZECUSDTM',  'TAO/USDT':  'TAOUSDTM',
-    'AVAX/USDT': 'AVAXUSDTM', 'ADA/USDT':  'ADAUSDTM'
+    'ETH/USDT': {'buy_price_idr':    37_447_016, 'amount': 0.05060638}
 }
 
 JAM_LAPORAN = {9, 14, 20}
 
-# 1. TAMBAHAN EMA9_BREAK PADA DAFTAR SINYAL
-BULLISH_SIGNAL_TYPES = {'BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT', 'EMA9_BREAK'}
+# ============================================================
+# [DI-NONAKTIFKAN] ASSET_LIST & FUTURES_MAP (Scanner Utama)
+# ============================================================
+# ASSET_LIST: List[str] = [
+#     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'SUI/USDT',
+#     'XRP/USDT', 'LINK/USDT', 'AAVE/USDT', 'DOT/USDT', 'ONDO/USDT',
+#     'ARB/USDT', 'NEAR/USDT', 'TAO/USDT', 'AVAX/USDT',
+#     'ADA/USDT', 'TRX/USDT', 'UNI/USDT'
+# ]
+# 
+# FUTURES_MAP: Dict[str, str] = {
+#     'BTC/USDT': 'XBTUSDTM',  'ETH/USDT': 'ETHUSDTM',
+#     'SOL/USDT': 'SOLUSDTM',  'BNB/USDT': 'BNBUSDTM',
+#     'SUI/USDT': 'SUIUSDTM',  'XRP/USDT': 'XRPUSDTM',
+#     'LINK/USDT': 'LINKUSDTM', 'AAVE/USDT': 'AAVEUSDTM',
+#     'DOT/USDT':  'DOTUSDTM',  'ONDO/USDT': 'ONDOUSDTM',
+#     'ARB/USDT':  'ARBUSDTM',  'NEAR/USDT': 'NEARUSDTM',
+#     'ZEC/USDT':  'ZECUSDTM',  'TAO/USDT':  'TAOUSDTM',
+#     'AVAX/USDT': 'AVAXUSDTM', 'ADA/USDT':  'ADAUSDTM'
+# }
 
-DESKRIPSI = {
+# BULLISH_SIGNAL_TYPES = {'BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT', 'EMA9_BREAK'}
+
+DESKRipSI = {
     'BULL_SWEEP':     ("HARGA AKAN NAIK", "Bandar sapu SL ritel disertai FVG, siap loncat naik."),
     'BEAR_SWEEP':     ("HARGA AKAN TURUN", "Bandar jebak ritel beli, siap dump."),
     'BULL_OB':         ("ZONA BELI BANDAR", "Harga kembali ke area demand institusi + FVG."),
@@ -100,251 +100,96 @@ async def get_fear_greed(client: httpx.AsyncClient) -> Dict[str, Any]:
         logger.warning(f"Gagal mengambil Fear & Greed ({e}), menggunakan fallback Neutral")
         return {'value': 50, 'label': 'Neutral'}
 
-async def get_funding_rate(exchange_futures: ccxt.Exchange, futures_symbol: str) -> Optional[float]:
-    try:
-        info = await exchange_futures.fetch_funding_rate(futures_symbol)
-        return float(info.get('fundingRate', 0))
-    except Exception as e:
-        logger.warning(f"Funding Rate error [{futures_symbol}]: {e}")
-        return None
+# async def get_funding_rate(exchange_futures: ccxt.Exchange, futures_symbol: str) -> Optional[float]:
+#     try:
+#         info = await exchange_futures.fetch_funding_rate(futures_symbol)
+#         return float(info.get('fundingRate', 0))
+#     except Exception as e:
+#         logger.warning(f"Funding Rate error [{futures_symbol}]: {e}")
+#         return None
 
 def format_rp(nilai: float) -> str:
     return f"Rp {nilai:,.0f}"
 
 # ============================================================
-# KALKULASI INDIKATOR & SMC
+# [DI-KOMENTARI] KALKULASI INDIKATOR & SMC (Scanner)
 # ============================================================
-def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
-    tr = pd.concat([
-        df['high'] - df['low'],
-        (df['high'] - df['close'].shift()).abs(),
-        (df['low']  - df['close'].shift()).abs(),
-    ], axis=1).max(axis=1)
-    return float(tr.rolling(period).mean().iloc[-2])
-
-def hitung_volume_delta(df: pd.DataFrame) -> pd.Series:
-    hl = (df['high'] - df['low']).replace(0, 1e-9)
-    return df['volume'] * ((df['close'] - df['open']) / hl)
-
-def hitung_sudut(df: pd.DataFrame, period: int = 10) -> float:
-    if len(df) < period: return 0.0
-    y = df['close'].iloc[-period:].values
-    x = np.arange(period)
-    y_norm = (y - y[0]) / (y[0] + 1e-9) * 100
-    slope, _ = np.polyfit(x, y_norm, 1)
-    return float(math.degrees(math.atan(slope)))
-
-def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> Dict[str, float]:
-    swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
-    swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
-    return {'swing_high': swing_high, 'swing_low': swing_low}
-
-def deteksi_order_block(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]]]:
-    result = {'bullish_ob': None, 'bearish_ob': None}
-    avg_body = (df['close'] - df['open']).abs().rolling(10).median()
-    for i in range(len(df) - 3, max(len(df) - 15, 0), -1):
-        row = df.iloc[i]
-        nxt = df.iloc[i + 1]
-        body = abs(row['close'] - row['open'])
-        if body < avg_body.iloc[i] * 1.2: continue
-
-        if row['close'] < row['open'] and nxt['close'] > row['high']:
-            if df.iloc[i+2:]['close'].min() >= row['low']:
-                result['bullish_ob'] = {'high': float(row['high']), 'low': float(row['low'])}
-                break
-
-        if row['close'] > row['open'] and nxt['close'] < row['low']:
-            if df.iloc[i+2:]['close'].max() <= row['high']:
-                result['bearish_ob'] = {'high': float(row['high']), 'low': float(row['low'])}
-                break
-    return result
-
-def deteksi_fvg(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]]]:
-    result = {'bullish_fvg': None, 'bearish_fvg': None}
-    if len(df) < 10: return result
-    
-    # Scan mundur dari 15 candle terakhir untuk mencari FVG aktif terdekat
-    for i in range(len(df) - 1, max(len(df) - 15, 2), -1):
-        c1 = df.iloc[i-2]
-        c3 = df.iloc[i]
-        
-        # Bullish FVG: Low candle 3 > High candle 1
-        if c3['low'] > c1['high'] and result['bullish_fvg'] is None:
-            result['bullish_fvg'] = {'high': float(c3['low']), 'low': float(c1['high'])}
-        
-        # Bearish FVG: High candle 3 < Low candle 1
-        if c3['high'] < c1['low'] and result['bearish_fvg'] is None:
-            result['bearish_fvg'] = {'high': float(c1['low']), 'low': float(c3['high'])}
-            
-        if result['bullish_fvg'] and result['bearish_fvg']:
-            break
-            
-    return result
+# def hitung_atr(df: pd.DataFrame, period: int = 14) -> float:
+#     tr = pd.concat([
+#         df['high'] - df['low'],
+#         (df['high'] - df['close'].shift()).abs(),
+#         (df['low']  - df['close'].shift()).abs(),
+#     ], axis=1).max(axis=1)
+#     return float(tr.rolling(period).mean().iloc[-2])
+# 
+# def hitung_volume_delta(df: pd.DataFrame) -> pd.Series:
+#     hl = (df['high'] - df['low']).replace(0, 1e-9)
+#     return df['volume'] * ((df['close'] - df['open']) / hl)
+# 
+# def hitung_sudut(df: pd.DataFrame, period: int = 10) -> float:
+#     if len(df) < period: return 0.0
+#     y = df['close'].iloc[-period:].values
+#     x = np.arange(period)
+#     y_norm = (y - y[0]) / (y[0] + 1e-9) * 100
+#     slope, _ = np.polyfit(x, y_norm, 1)
+#     return float(math.degrees(math.atan(slope)))
+# 
+# def deteksi_swing_4h(df_4h: pd.DataFrame, window: int = 7) -> Dict[str, float]:
+#     swing_low = float(df_4h['low'].iloc[-window-1:-1].min())
+#     swing_high = float(df_4h['high'].iloc[-window-1:-1].max())
+#     return {'swing_high': swing_high, 'swing_low': swing_low}
+# 
+# def deteksi_order_block(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]]]:
+#     result = {'bullish_ob': None, 'bearish_ob': None}
+#     avg_body = (df['close'] - df['open']).abs().rolling(10).median()
+#     for i in range(len(df) - 3, max(len(df) - 15, 0), -1):
+#         row = df.iloc[i]
+#         nxt = df.iloc[i + 1]
+#         body = abs(row['close'] - row['open'])
+#         if body < avg_body.iloc[i] * 1.2: continue
+# 
+#         if row['close'] < row['open'] and nxt['close'] > row['high']:
+#             if df.iloc[i+2:]['close'].min() >= row['low']:
+#                 result['bullish_ob'] = {'high': float(row['high']), 'low': float(row['low'])}
+#                 break
+# 
+#         if row['close'] > row['open'] and nxt['close'] < row['low']:
+#             if df.iloc[i+2:]['close'].max() <= row['high']:
+#                 result['bearish_ob'] = {'high': float(row['high']), 'low': float(row['low'])}
+#                 break
+#     return result
+# 
+# def deteksi_fvg(df: pd.DataFrame) -> Dict[str, Optional[Dict[str, float]]]:
+#     result = {'bullish_fvg': None, 'bearish_fvg': None}
+#     if len(df) < 10: return result
+#     
+#     for i in range(len(df) - 1, max(len(df) - 15, 2), -1):
+#         c1 = df.iloc[i-2]
+#         c3 = df.iloc[i]
+#         
+#         if c3['low'] > c1['high'] and result['bullish_fvg'] is None:
+#             result['bullish_fvg'] = {'high': float(c3['low']), 'low': float(c1['high'])}
+#         
+#         if c3['high'] < c1['low'] and result['bearish_fvg'] is None:
+#             result['bearish_fvg'] = {'high': float(c1['low']), 'low': float(c3['high'])}
+#             
+#         if result['bullish_fvg'] and result['bearish_fvg']:
+#             break
+#             
+#     return result
 
 # ============================================================
-# ANALISA UTAMA SCANNER
+# [DI-KOMENTARI] ANALISA UTAMA SCANNER
 # ============================================================
-def analisa(
-    df_1h: pd.DataFrame,
-    df_4h: pd.DataFrame,
-    usd_idr: float,
-    funding_rate: Optional[float],
-    fear_greed: dict,
-    is_weekend: bool,
-) -> Optional[Dict[str, Any]]:
+# def analisa(...):
+#     pass
 
-    if len(df_1h) < 50 or len(df_4h) < 20: return None
-
-    # Kalkulasi EMA di 4H untuk status Tren/Fase
-    df_4h['ema9'] = df_4h['close'].ewm(span=9, adjust=False).mean()
-    df_4h['ema21'] = df_4h['close'].ewm(span=21, adjust=False).mean()
-    df_4h['ema50'] = df_4h['close'].ewm(span=50, adjust=False).mean()
-    
-    c_4h, e9, e21 = df_4h['close'].iloc[-1], df_4h['ema9'].iloc[-1], df_4h['ema21'].iloc[-1]
-    trend_4h_bull = c_4h > df_4h['ema50'].iloc[-1]
-
-    if c_4h > e9 and e9 > e21: fase_4h = "NAIK KOKOH 🟢"
-    elif c_4h > e9 and e9 <= e21: fase_4h = "REBOUND ↗️"
-    elif c_4h < e9 and e9 < e21: fase_4h = "TURUN 🔴"
-    elif c_4h < e9 and e9 >= e21: fase_4h = "KOREKSI ↘️"
-    else: fase_4h = "SIDEWAYS ⚪"
-
-    # RSI 4H
-    delta_4h = df_4h['close'].diff()
-    up, down = delta_4h.clip(lower=0), -1 * delta_4h.clip(upper=0)
-    rs = (up.ewm(com=13, adjust=False).mean()) / (down.ewm(com=13, adjust=False).mean())
-    
-    rsi_series = 100 - (100 / (1 + rs))
-    rsi_4h = float(rsi_series.iloc[-1]) if not math.isnan(rsi_series.iloc[-1]) else 50.0
-
-    # 2. LOGIKA PATAHAN EMA9 (PRA-GOLDEN CROSS) PADA TIMEFRAME 1H
-    df_1h['ema9'] = df_1h['close'].ewm(span=9, adjust=False).mean()
-    p_1h_close, p_1h_e9 = df_1h['close'].iloc[-2], df_1h['ema9'].iloc[-2]
-    c_1h_close, c_1h_e9 = df_1h['close'].iloc[-1], df_1h['ema9'].iloc[-1]
-    
-    # Syarat: Candle sebelumnya tutup di bawah EMA9, candle saat ini (atau baru ditutup) berada di atas EMA9
-    is_patahan_ema9_bull = (p_1h_close < p_1h_e9) and (c_1h_close > c_1h_e9)
-
-    # Kalkulasi Candlestick 1H lainnya
-    c, p = df_1h.iloc[-2], df_1h.iloc[-3]
-    latest_c = df_1h.iloc[-1]
-    harga_idr = latest_c['close'] * usd_idr
-    atr_idr = hitung_atr(df_1h) * usd_idr
-    sudut_tren = hitung_sudut(df_1h)
-
-    avg_vol = df_1h['volume'].iloc[-21:-1].median()
-    avg_range = (df_1h['high'] - df_1h['low']).iloc[-21:-1].median()
-
-    candle_range = c['high'] - c['low']
-    body_size = abs(c['close'] - c['open'])
-    upper_wick = c['high'] - max(c['close'], c['open'])
-    lower_wick = min(c['close'], c['open']) - c['low']
-    vol_ratio = round(c['volume'] / (avg_vol if avg_vol > 0 else 1), 2)
-
-    vol_spike = c['volume'] > avg_vol * 1.5
-    vol_ultra = c['volume'] > avg_vol * 2.5
-
-    deltas = hitung_volume_delta(df_1h)
-    cvd_delta = round(deltas.iloc[-2], 4)
-    cvd_naik = cvd_delta > 0
-
-    ob = deteksi_order_block(df_1h)
-    fvg = deteksi_fvg(df_1h)
-    
-    dekat_bull_ob = dekat_bear_ob = False
-    if ob['bullish_ob']:
-        ob_mid = ((ob['bullish_ob']['high'] + ob['bullish_ob']['low']) / 2) * usd_idr
-        dekat_bull_ob = abs(harga_idr - ob_mid) / ob_mid < 0.008
-
-    if ob['bearish_ob']:
-        ob_mid = ((ob['bearish_ob']['high'] + ob['bearish_ob']['low']) / 2) * usd_idr
-        dekat_bear_ob = abs(harga_idr - ob_mid) / ob_mid < 0.008
-
-    ada_bullish_fvg = fvg['bullish_fvg'] is not None
-    ada_bearish_fvg = fvg['bearish_fvg'] is not None
-
-    bull_sweep = (lower_wick > candle_range * 0.35) and vol_spike and (c['close'] >= p['low'])
-    bear_sweep = (upper_wick > candle_range * 0.35) and vol_spike and (c['close'] <= p['high'])
-    is_absorption = vol_spike and (body_size < avg_range * 0.5)
-
-    bull_breakout = (c['close'] > c['open']) and (body_size > avg_range * 1.0) and vol_spike
-    bear_breakout = (c['close'] < c['open']) and (body_size > avg_range * 1.0) and vol_spike
-
-    swing_4h = deteksi_swing_4h(df_4h, window=7)
-    swing_high_idr = swing_4h['swing_high'] * usd_idr
-    swing_low_idr = swing_4h['swing_low'] * usd_idr
-
-    sl_buy = swing_low_idr - (0.5 * atr_idr)
-    tp_buy = swing_high_idr if swing_high_idr > harga_idr * 1.015 else harga_idr + (3.5 * atr_idr)
-    if sl_buy >= harga_idr * 0.985: sl_buy = harga_idr - (1.8 * atr_idr)
-
-    sl_sell = swing_high_idr + (0.5 * atr_idr)
-    tp_sell = swing_low_idr if swing_low_idr < harga_idr * 0.985 else harga_idr - (3.5 * atr_idr)
-    if sl_sell <= harga_idr * 1.015: sl_sell = harga_idr + (1.8 * atr_idr)
-
-    risk_buy = max(harga_idr - sl_buy, 1.0)
-    reward_buy = max(tp_buy - harga_idr, 0.0)
-    rrr_buy = round(reward_buy / risk_buy, 2)
-    profit_pct = round((reward_buy / harga_idr) * 100, 2)
-
-    skor_dasar = 50.0
-    if trend_4h_bull: skor_dasar += 15.0
-    if vol_ultra: skor_dasar += 15.0
-    elif vol_spike: skor_dasar += 10.0
-    if cvd_naik: skor_dasar += 10.0
-    
-    # === FVG SEBAGAI BONUS SKOR ===
-    if ada_bullish_fvg: skor_dasar += 10.0 
-    
-    if funding_rate is not None and funding_rate <= 0.0005: skor_dasar += 5.0
-    if is_patahan_ema9_bull: skor_dasar += 5.0 
-    
-    skor_final = min(round(skor_dasar, 1), 100.0)
-
-    base = {
-        'harga': harga_idr, 'vol_ratio': vol_ratio,
-        'cvd_delta': cvd_delta, 'cvd_naik': cvd_naik,
-        'trend_4h': 'BULLISH' if trend_4h_bull else 'BEARISH',
-        'fase_4h': fase_4h, 'rsi_4h': rsi_4h,
-        'funding_rate': funding_rate, 'fear_greed': fear_greed,
-        'is_weekend': is_weekend, 'vol_ultra': vol_ultra,
-        'sl_buy': sl_buy, 'tp_buy': tp_buy,
-        'sl_sell': sl_sell, 'tp_sell': tp_sell,
-        'rrr': rrr_buy, 'profit_pct': profit_pct,
-        'high_price': c['high'] * usd_idr, 
-        'low_price': c['low'] * usd_idr,
-        'skor': skor_final, 'sudut': sudut_tren,
-    }
-
-    strength = '🔥🔥🔥' if vol_ultra else '🔥🔥'
-
-    if bull_sweep: return {**base, 'tipe': 'BULL_SWEEP', 'aksi': '🟢 BELI / ENTRY DISKON (Anti-Fake Sweep + FVG)', 'strength': strength}
-    if bear_sweep: return {**base, 'tipe': 'BEAR_SWEEP', 'aksi': '🔴 JUAL / TAKE PROFIT (Awas Trap)', 'strength': strength}
-    if dekat_bull_ob and vol_spike and ada_bullish_fvg: return {**base, 'tipe': 'BULL_OB', 'aksi': '🟢 BELI (Antri Limit di Demand + FVG)', 'strength': '🔥🔥'}
-    if dekat_bear_ob and vol_spike: return {**base, 'tipe': 'BEAR_OB', 'aksi': '⏳ WAIT & SEE / CASH OUT', 'strength': '🔥🔥'}
-    if is_absorption:
-        aksi = '🟢 CICIL BELI (DCA Santai)' if c['close'] >= c['open'] else '🔴 AMANKAN CASH / SELL'
-        tipe = 'AKUMULASI' if c['close'] >= c['open'] else 'DISTRIBUSI'
-        return {**base, 'tipe': tipe, 'aksi': aksi, 'strength': '🔥'}
-    if bull_breakout: return {**base, 'tipe': 'BULL_BREAKOUT', 'aksi': '🟢 FOLLOW TREND (Breakout + FVG)', 'strength': strength}
-    if bear_breakout: return {**base, 'tipe': 'BEAR_BREAKOUT', 'aksi': '⏳ TUNGGU DI BAWAH (Wait Drop)', 'strength': strength}
-
-    # 3. KONDISI TRIGGER SINYAL PATAHAN EMA9
-    if is_patahan_ema9_bull and cvd_naik: 
-        return {**base, 'tipe': 'EMA9_BREAK', 'aksi': '🟢 ENTRY CEPAT (Pra-Golden Cross & CVD Naik)', 'strength': '🔥'}
-
-    return None
-    
 # ============================================================
 # FUNGSI ANTI SPAM NOTIF
 # ============================================================
 STATE_FILE = "last_sent_alert.json"
 
 def cek_dan_simpan_duplikasi(symbol: str, signal_type: str) -> bool:
-    """
-    Mengembalikan True jika sinyal INI SUDAH PERNAH DIKIRIM sebelumnya (di-skip).
-    Mengembalikan False jika ini sinyal BARU atau berubah (lanjutkan kirim).
-    """
     last_data = {}
     if os.path.exists(STATE_FILE):
         try:
@@ -354,7 +199,7 @@ def cek_dan_simpan_duplikasi(symbol: str, signal_type: str) -> bool:
             pass
 
     if last_data.get(symbol) == signal_type:
-        return True  # Sudah pernah dikirim, abaikan!
+        return True  
     
     last_data[symbol] = signal_type
     try:
@@ -366,27 +211,27 @@ def cek_dan_simpan_duplikasi(symbol: str, signal_type: str) -> bool:
     return False
 
 # ============================================================
-# TELEGRAM FORMATTERS (PERBAIKAN)
+# TELEGRAM FORMATTERS
 # ============================================================
 def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
     tipe, harga = s['tipe'], format_rp(s['harga'])
     judul, ket = DESKRIPSI.get(tipe, (tipe, ""))
     
-    fr = s['funding_rate']
+    fr = s.get('funding_rate')
     if fr is None: fr_str = "N/A"
     elif fr > 0.0005: fr_str = f"+{fr*100:.4f}% (Rawan Dump)"
     elif fr < -0.0005: fr_str = f"{fr*100:+.4f}% (Squeeze)"
     else: fr_str = f"{fr*100:+.4f}% (Normal)"
 
-    is_bullish = tipe in BULLISH_SIGNAL_TYPES
+    is_bullish = tipe in {'BULL_SWEEP', 'BULL_OB', 'AKUMULASI', 'BULL_BREAKOUT', 'EMA9_BREAK'}
     if is_bullish:
-        rm_label_1, rm_val_1 = "TP (Target)", format_rp(s['tp_buy'])
-        rm_label_2, rm_val_2 = "SL (Batas) ", format_rp(s['sl_buy'])
-        rrr_value = s.get('rrr_buy', s.get('rrr', 0.0))  # Ambil RRR buy
+        rm_label_1, rm_val_1 = "TP (Target)", format_rp(s.get('tp_buy', 0))
+        rm_label_2, rm_val_2 = "SL (Batas) ", format_rp(s.get('sl_buy', 0))
+        rrr_value = s.get('rrr_buy', s.get('rrr', 0.0))  
     else:
-        rm_label_1, rm_val_1 = "Serok Bawah", format_rp(s['tp_sell'])
-        rm_label_2, rm_val_2 = "Invalidasi ", format_rp(s['sl_sell'])
-        rrr_value = s.get('rrr_sell', s.get('rrr', 0.0))  # Ambil RRR sell (jika ada)
+        rm_label_1, rm_val_1 = "Serok Bawah", format_rp(s.get('tp_sell', 0))
+        rm_label_2, rm_val_2 = "Invalidasi ", format_rp(s.get('sl_sell', 0))
+        rrr_value = s.get('rrr_sell', s.get('rrr', 0.0))  
 
     header = f"🚨 <b>WARNING PORTOFOLIO — {symbol}</b>" if is_porto_alert else f"⚡ <b>QUANT SIGNAL — {symbol}</b>"
     vol_ultra_str = " (ULTRA)" if s.get('vol_ultra') else ""
@@ -397,15 +242,15 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
         f"<code>"
         f"[ 1. SIGNAL DETECTION ]\n"
         f"  • Trigger : {judul}\n"
-        f"  • Tren 4H : {s['trend_4h']} ({s['fase_4h']})\n"
+        f"  • Tren 4H : {s.get('trend_4h', 'N/A')} ({s.get('fase_4h', 'N/A')})\n"
         f"  • Skor    : {s.get('skor', 0.0)} / 100\n"
         f"  • Sudut   : {s.get('sudut', 0.0):+.2f}°\n"
         f"  • RSI 4H  : {s.get('rsi_4h', 0.0):.1f}\n"
         f"  • Harga   : {harga}\n"
         f"------------------------------\n"
         f"[ 2. MARKET METRICS ]\n"
-        f"  • Volume  : {s['vol_ratio']}x median{vol_ultra_str}\n"
-        f"  • Delta   : {'Beli Dominan' if s['cvd_naik'] else 'Jual Dominan'}\n"
+        f"  • Volume   : {s.get('vol_ratio', 0)}x median{vol_ultra_str}\n"
+        f"  • Delta   : {'Beli Dominan' if s.get('cvd_naik') else 'Jual Dominan'}\n"
         f"  • Funding : {fr_str}\n"
         f"  • Market  : {s['fear_greed']['value']} ({s['fear_greed']['label']})\n"
         f"------------------------------\n"
@@ -419,30 +264,13 @@ def format_pesan(symbol: str, s: dict, is_porto_alert: bool = False) -> str:
         f"💡 <b>Insight    :</b> {ket}"
     )
 
-def format_informan_radar(kumpulan_semua: List[dict], best_symbol: str) -> str:
-    radar = [s for s in kumpulan_semua if s['symbol'] != best_symbol and s['tipe'] in BULLISH_SIGNAL_TYPES and s.get('skor', 0) >= 60]
-    if not radar: return ""
-        
-    radar.sort(key=lambda x: x.get('skor', 0), reverse=True)
-    
-    lines = ["🕵️‍♂️ <b>RADAR INFORMAN PRIBADI</b>", "<i>Koin potensial lain yang terpantau:</i>\n"]
-    for s in radar[:5]: 
-        lines.append(f"🔹 <b>{s['symbol']}</b> | Skor: {s['skor']}")
-        lines.append(f"  ├ Fase  : {s['fase_4h']} | RSI: {s.get('rsi_4h', 0):.1f}")
-        lines.append(f"  ├ Setup : {s['tipe'].replace('_', ' ')}")
-        # PERBAIKAN: Menggunakan .get('rrr', 0.0) untuk menghindari KeyError
-        if not s.get('is_tradeable'):
-            lines.append(f"  └ ⚠️ <i>Skip Bot Trading (RRR {s.get('rrr', 0.0)}x / Profit {s.get('profit_pct', 0.0):.1f}%)</i>")
-        else:
-            lines.append(f"  └ ✅ <i>Lolos Syarat Bot, kalah peringkat utama.</i>")
-        lines.append("")
-    
-    return "\n".join(lines)
+# [DI-KOMENTARI] Radar Informan
+# def format_informan_radar(...):
+#     pass
 
 # ============================================================
 # LAPORAN PORTOFOLIO
 # ============================================================
-
 async def kirim_laporan(bot: Bot, exchange: ccxt.Exchange, usd_idr: float, fear_greed: dict):
     total_modal = total_nilai = 0.0
     baris = []
@@ -509,57 +337,13 @@ async def kirim_laporan(bot: Bot, exchange: ccxt.Exchange, usd_idr: float, fear_
     await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
 
 # ============================================================
-# WORKER SCANNER PER ASSET
+# [DI-KOMENTARI] WORKER SCANNER PER ASSET
 # ============================================================
-async def scan_asset(
-    symbol: str, exchange: ccxt.Exchange, exchange_futures: ccxt.Exchange,
-    usd_idr: float, fear_greed: dict, is_weekend: bool, bot: Bot, semaphore: asyncio.Semaphore
-) -> Optional[Dict[str, Any]]:
-
-    async with semaphore:
-        try:
-            bars_1h_task = exchange.fetch_ohlcv(symbol, '1h', limit=60)
-            bars_4h_task = exchange.fetch_ohlcv(symbol, '4h', limit=60)
-            bars_1h, bars_4h = await asyncio.gather(bars_1h_task, bars_4h_task)
-
-            df_1h = pd.DataFrame(bars_1h, columns=['timestamp','open','high','low','close','volume']).astype(float)
-            df_4h = pd.DataFrame(bars_4h, columns=['timestamp','open','high','low','close','volume']).astype(float)
-
-            futures_sym = FUTURES_MAP.get(symbol)
-            funding_rate = await get_funding_rate(exchange_futures, futures_sym) if futures_sym else None
-
-            hasil = analisa(df_1h, df_4h, usd_idr, funding_rate, fear_greed, is_weekend)
-
-            if not hasil: return None
-            hasil['symbol'] = symbol
-
-            is_bullish = hasil['tipe'] in BULLISH_SIGNAL_TYPES
-            is_porto = symbol in PORTFOLIO
-
-            if is_bullish:
-                hasil['is_tradeable'] = True
-                if hasil['rrr'] < MIN_RRR_THRESHOLD or hasil.get('profit_pct', 0.0) < MIN_PROFIT_PCT_THRESHOLD:
-                    hasil['is_tradeable'] = False
-                    logger.info(f"👀 {symbol}: Masuk Radar Informan, tapi Skip Bot Trade (RRR/Profit kurang).")
-                return hasil
-
-            elif is_porto:
-                # CEK ANTI-SPAM UNTUK PORTOFOLIO
-                if cek_dan_simpan_duplikasi(symbol, hasil['tipe']):
-                    logger.info(f"🛡️ Anti-Spam: Warning portofolio {symbol} ({hasil['tipe']}) sama dengan jam lalu. Dilewati.")
-                    return None
-
-                logger.warning(f"🚨 WARNING PORTOFOLIO: {symbol} terdeteksi sinyal JUAL/DUMP ({hasil['tipe']})!")
-                pesan_warning = format_pesan(symbol, hasil, is_porto_alert=True)
-                await bot.send_message(chat_id=CHAT_ID, text=pesan_warning, parse_mode='HTML')
-                return None
-
-        except Exception as e:
-            logger.error(f"Error scanning {symbol}: {e}")
-            return None
+# async def scan_asset(...):
+#     pass
 
 # ============================================================
-# MAIN EXECUTOR
+# MAIN EXECUTOR (PORTFOLIO & WARNING MONITOR ONLY)
 # ============================================================
 async def main():
     if not TOKEN or not CHAT_ID: return
@@ -580,7 +364,7 @@ async def main():
         "tp_price": 0.0,
         "rrr": 0.0,
         "profit_pct": 0.0,
-        "status": "SCANNING_OR_ERROR" # Penanda tambahan agar bot sebelah tahu file sedang di-reset
+        "status": "PORTFOLIO_MONITOR_ONLY"
     }
     
     try:
@@ -588,11 +372,10 @@ async def main():
             json.dump(default_signal, f, indent=4)
     except Exception as e:
         logger.error(f"Gagal melakukan reset file signal_main.json: {e}")
-        return # Hentikan proses jika bahkan menulis file reset saja gagal
+        return 
 
-    # 2. INISIALISASI EXCHANGE
+    # 2. INISIALISASI EXCHANGE (Hanya Spot Kucoin untuk cek portofolio)
     exchange = ccxt.kucoin({'enableRateLimit': True, 'options': {'defaultType': 'spot'}, 'timeout': 30_000})
-    exchange_futures = ccxt.kucoinfutures({'enableRateLimit': True, 'timeout': 30_000})
     bot = Bot(token=TOKEN)
 
     try:
@@ -602,68 +385,8 @@ async def main():
             fear_greed_task = get_fear_greed(client)
             usd_idr, fear_greed = await asyncio.gather(usd_idr_task, fear_greed_task)
 
-        now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
-        is_weekend = now_wib.weekday() in [5, 6]
-
-        semaphore = asyncio.Semaphore(5)
-        tasks = [scan_asset(s, exchange, exchange_futures, usd_idr, fear_greed, is_weekend, bot, semaphore) for s in ASSET_LIST]
-        
-        hasil_scan = await asyncio.gather(*tasks)
-        semua_sinyal_bullish = [s for s in hasil_scan if s is not None]
-
-        # 1. PISAHKAN UNTUK BOT TRADING (Sinyal Utama)
-        trade_candidates = [s for s in semua_sinyal_bullish if s.get('is_tradeable', False)]
-        best_signal = None
-        
-        if trade_candidates:
-            trade_candidates.sort(key=lambda x: (
-                x.get('sudut', 0.0), 
-                x.get('skor', 0.0), 
-                x.get('rrr', 0.0)
-            ), reverse=True)
-            
-            best_signal = trade_candidates[0]
-            symbol_terpilih = best_signal['symbol']
-            tipe_terpilih = best_signal['tipe']
-
-            # CEK ANTI-SPAM UNTUK SINYAL UTAMA
-            if cek_dan_simpan_duplikasi(symbol_terpilih, tipe_terpilih):
-                logger.info(f"🛡️ Anti-Spam: Sinyal utama {symbol_terpilih} ({tipe_terpilih}) masih sama dengan jam sebelumnya. Broadcast dibatalkan.")
-            else:
-                logger.info(f"📢 Mengirim Sinyal Utama: {symbol_terpilih} ...")
-                pesan = format_pesan(symbol_terpilih, best_signal)
-                await bot.send_message(chat_id=CHAT_ID, text=pesan, parse_mode='HTML')
-        else:
-            logger.info("— Tidak ada sinyal BELI yang lolos filter Bot Trading siklus ini.")
-
-        # 2. EKSEKUSI RADAR INFORMAN (Laporan Koin Potensial Lainnya)
-        best_sym = best_signal['symbol'] if best_signal else ""
-        radar_msg = format_informan_radar(semua_sinyal_bullish, best_sym)
-        if radar_msg:
-            await bot.send_message(chat_id=CHAT_ID, text=radar_msg, parse_mode='HTML')
-            logger.info("📢 Radar Informan Pribadi berhasil dikirim.")
-
-        # 3. EXPORT KE PAPER TRADER (PERBAIKAN: Menggunakan .get() dan menambahkan status ACTIVE)
-        signal_export = {
-            "timestamp": now_wib.strftime('%Y-%m-%d %H:%M:%S'),
-            "symbol": best_signal.get('symbol', 'NONE') if best_signal else "NONE",
-            "signal_type": best_signal.get('tipe') if best_signal else None,
-            "score": best_signal.get('skor', 0.0) if best_signal else 0.0,
-            "angle": best_signal.get('sudut', 0.0) if best_signal else 0.0,
-            "current_price": best_signal.get('harga', 0.0) if best_signal else 0.0,
-            "high_price": best_signal.get('high_price', 0.0) if best_signal else 0.0,
-            "low_price": best_signal.get('low_price', 0.0) if best_signal else 0.0,
-            "sl_price": best_signal.get('sl_buy', 0.0) if best_signal else 0.0,
-            "tp_price": best_signal.get('tp_buy', 0.0) if best_signal else 0.0,
-            "rrr": best_signal.get('rrr', 0.0) if best_signal else 0.0,
-            "profit_pct": best_signal.get('profit_pct', 0.0) if best_signal else 0.0,
-            "status": "ACTIVE"
-        }
-
-        with open("signal_main.json", "w") as f:
-            json.dump(signal_export, f, indent=4)
-
-        # 4. LAPORAN PORTOFOLIO REGULER
+        # 3. LAPORAN PORTOFOLIO REGULER / CEK BERKALA
+        logger.info("🔍 Memeriksa kondisi portofolio...")
         if now_wib.hour in JAM_LAPORAN and now_wib.minute < 30:
             await kirim_laporan(bot, exchange, usd_idr, fear_greed)
 
@@ -671,8 +394,6 @@ async def main():
         logger.error(f"Error utama pada executor main(): {e}")
     finally:
         try: await exchange.close()
-        except: pass
-        try: await exchange_futures.close()
         except: pass
 
 if __name__ == '__main__':
